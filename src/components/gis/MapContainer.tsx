@@ -13,32 +13,38 @@ interface MapContainerProps {
   className?: string;
 }
 
-// Neutral Light Carto Positron Style (Public, No API keys required)
-const DEFAULT_MAP_STYLE: maplibregl.StyleSpecification = {
+// Clean, neutral Esri World Light Gray Canvas Style (100% public, zero watermarks, no API key required)
+const ESRI_LIGHT_GRAY_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {
-    'carto-positron': {
+    'esri-light-gray': {
       type: 'raster',
       tiles: [
-        'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
-        'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
-        'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
-        'https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
+        'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
       ],
       tileSize: 256,
       attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>',
+        'Tiles &copy; <a href="https://www.esri.com" target="_blank" rel="noopener">Esri</a> &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), TomTom',
     },
   },
   layers: [
     {
-      id: 'carto-positron-layer',
+      id: 'esri-light-gray-layer',
       type: 'raster',
-      source: 'carto-positron',
+      source: 'esri-light-gray',
       minzoom: 0,
       maxzoom: 19,
     },
   ],
+};
+
+// Helper to resolve map style: checks VITE_MAP_STYLE env var first, defaults to Esri Light Gray Canvas
+const getInitialStyle = (): string | maplibregl.StyleSpecification => {
+  const envStyle = import.meta.env.VITE_MAP_STYLE;
+  if (envStyle && typeof envStyle === 'string' && envStyle.trim() !== '') {
+    return envStyle.trim();
+  }
+  return ESRI_LIGHT_GRAY_STYLE;
 };
 
 export const MapContainer: React.FC<MapContainerProps> = ({
@@ -62,7 +68,6 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     setHasError(false);
 
     try {
-      // Clean up previous instance if any
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -70,19 +75,19 @@ export const MapContainer: React.FC<MapContainerProps> = ({
 
       const map = new maplibregl.Map({
         container: mapContainerRef.current,
-        style: DEFAULT_MAP_STYLE,
+        style: getInitialStyle(),
         center: center,
         zoom: zoom,
-        attributionControl: false, // Custom placed attribution control below
+        attributionControl: false,
       });
 
-      // Add navigation controls (Zoom in/out, pitch/compass)
+      // Add Navigation controls (Zoom in/out, pitch/compass)
       map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
 
       // Add Fullscreen control
       map.addControl(new maplibregl.FullscreenControl(), 'top-right');
 
-      // Add Attribution control
+      // Add Attribution control (Mandatory for provider license compliance)
       map.addControl(
         new maplibregl.AttributionControl({
           compact: true,
@@ -100,7 +105,6 @@ export const MapContainer: React.FC<MapContainerProps> = ({
 
       map.on('error', (e: maplibregl.ErrorEvent) => {
         console.error('MapLibre GL Tile Error:', e);
-        // Only set error state if map container failed to render tiles
         if (!map.loaded()) {
           setIsLoading(false);
           setHasError(true);
@@ -152,7 +156,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       {isLoading && (
         <div className="absolute inset-0 z-20 bg-slate-900/40 backdrop-blur-xs flex flex-col items-center justify-center text-white space-y-2">
           <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
-          <p className="text-xs font-medium text-slate-200">Initializing GIS Base Map...</p>
+          <p className="text-xs font-medium text-slate-200">Initializing Base Map...</p>
         </div>
       )}
 
