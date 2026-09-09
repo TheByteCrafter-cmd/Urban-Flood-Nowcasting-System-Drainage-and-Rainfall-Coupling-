@@ -58,11 +58,11 @@ const generateMumbaiDEMGrid = (): GeoJSONFeatureCollection => {
   ];
 
   const getColorAndCategory = (elevation: number): { color: string; category: '0-10' | '10-25' | '25-50' | '50-75' | '75+' } => {
-    if (elevation <= 10) return { color: '#15803D', category: '0-10' };    // Lowland (Darker Green)
-    if (elevation <= 25) return { color: '#65A30D', category: '10-25' };   // Moderate (Olive Green)
-    if (elevation <= 50) return { color: '#D97706', category: '25-50' };   // Ridge (Muted Amber)
-    if (elevation <= 75) return { color: '#B45309', category: '50-75' };   // Hilly (Muted Terracotta)
-    return { color: '#78350F', category: '75+' };                          // Peak (Dark Timber Brown)
+    if (elevation <= 10) return { color: '#2E8B57', category: '0-10' };    // Low / Coastal (Muted Sea Green)
+    if (elevation <= 25) return { color: '#6B8E23', category: '10-25' };   // Moderate (Muted Olive)
+    if (elevation <= 50) return { color: '#B8860B', category: '25-50' };   // Elevated (Muted Ochre)
+    if (elevation <= 75) return { color: '#8B5A2B', category: '50-75' };   // High (Muted Brown)
+    return { color: '#6B3F1D', category: '75+' };                          // Very High (Deep Brown)
   };
 
   const features: GeoJSONPolygonFeature[] = [];

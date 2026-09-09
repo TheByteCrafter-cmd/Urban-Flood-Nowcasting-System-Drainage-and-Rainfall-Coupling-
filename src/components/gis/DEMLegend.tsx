@@ -1,11 +1,11 @@
 import React from 'react';
 
 export const DEM_COLOR_RAMP = [
-  { range: '0–10 m', label: 'Lowland / Coastal', color: '#15803D' },
-  { range: '10–25 m', label: 'Moderate Terrain', color: '#65A30D' },
-  { range: '25–50 m', label: 'Elevated Ridge', color: '#D97706' },
-  { range: '50–75 m', label: 'Hilly Terrain', color: '#B45309' },
-  { range: '75+ m', label: 'High Peak', color: '#78350F' },
+  { range: '0–10 m', label: 'Low / Coastal', color: '#2E8B57' },
+  { range: '10–25 m', label: 'Moderate', color: '#6B8E23' },
+  { range: '25–50 m', label: 'Elevated', color: '#B8860B' },
+  { range: '50–75 m', label: 'High', color: '#8B5A2B' },
+  { range: '75+ m', label: 'Very High', color: '#6B3F1D' },
 ];
 
 interface DEMLegendProps {

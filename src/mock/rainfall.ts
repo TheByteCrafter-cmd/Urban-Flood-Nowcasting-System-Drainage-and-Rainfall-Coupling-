@@ -68,12 +68,15 @@ const generateMumbaiRainfallGrid = (): GeoJSONFeatureCollection => {
 
   const features: GeoJSONPolygonFeature[] = [];
 
+  const insetLng = lngStep * 0.05;
+  const insetLat = latStep * 0.05;
+
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      const cellMinLng = minLng + c * lngStep;
-      const cellMaxLng = minLng + (c + 1) * lngStep;
-      const cellMinLat = minLat + r * latStep;
-      const cellMaxLat = minLat + (r + 1) * latStep;
+      const cellMinLng = minLng + c * lngStep + insetLng;
+      const cellMaxLng = minLng + (c + 1) * lngStep - insetLng;
+      const cellMinLat = minLat + r * latStep + insetLat;
+      const cellMaxLat = minLat + (r + 1) * latStep - insetLat;
 
       const intensity = intensityPattern[r][c];
       const { color, category } = getColorAndCategory(intensity);

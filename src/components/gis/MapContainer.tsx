@@ -39,27 +39,27 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     setShowDEM(active);
   };
 
-  // DEM Elevation GeoJSON Styling (Subtle & Muted Terrain Palette, fillOpacity 0.45)
+  // DEM Elevation GeoJSON Styling (Subtle & Muted Terrain Palette, fillOpacity 0.30)
   const getDEMStyle = (feature: any): L.PathOptions => {
     const elevation = feature?.properties?.elevation_m ?? 0;
 
-    let fillColor = '#15803D'; // 0-10 m (Lowland / Darker Green)
+    let fillColor = '#2E8B57'; // 0-10 m (Low / Coastal Muted Sea Green)
     if (elevation > 75) {
-      fillColor = '#78350F'; // 75+ m (Dark Timber Brown)
+      fillColor = '#6B3F1D'; // 75+ m (Very High Deep Brown)
     } else if (elevation > 50) {
-      fillColor = '#B45309'; // 50-75 m (Muted Terracotta)
+      fillColor = '#8B5A2B'; // 50-75 m (High Muted Brown)
     } else if (elevation > 25) {
-      fillColor = '#D97706'; // 25-50 m (Muted Amber)
+      fillColor = '#B8860B'; // 25-50 m (Elevated Muted Ochre)
     } else if (elevation > 10) {
-      fillColor = '#65A30D'; // 10-25 m (Olive Green)
+      fillColor = '#6B8E23'; // 10-25 m (Moderate Muted Olive)
     }
 
     return {
       fillColor,
-      fillOpacity: 0.45,
-      color: '#FFFFFF',
-      weight: 1,
-      opacity: 0.5,
+      fillOpacity: 0.30,
+      color: '#4A3B32',
+      weight: 0.5,
+      opacity: 0.20,
     };
   };
 
@@ -73,11 +73,11 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           <span style="font-weight: 700; font-size: 13px; color: #0f172a;">${props.zone_name || 'Mumbai Zone'}</span>
           <span style="font-size: 9px; font-weight: 700; color: #92400e; background-color: #fef3c7; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px;">DEMO DATA</span>
         </div>
-        <div style="font-size: 12px; margin-bottom: 4px;">
-          <span style="color: #64748b;">Terrain Elevation:</span>
-          <span style="font-weight: 800; color: #15803d; font-size: 13px; margin-left: 4px;">${props.elevation_m} m</span>
+        <div style="font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase; tracking: 0.5px; margin-bottom: 2px;">Elevation</div>
+        <div style="font-size: 18px; font-weight: 800; color: #166534; margin-bottom: 4px;">
+          ${props.elevation_m} m
         </div>
-        <div style="font-size: 11px; color: #475569;">
+        <div style="font-size: 11px; color: #64748b;">
           <span>Category: </span>
           <span style="font-weight: 700; color: ${props.color};">${props.category} m</span>
         </div>
@@ -89,11 +89,11 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     layer.on({
       mouseover: (e) => {
         const l = e.target as L.Path;
-        l.setStyle({ fillOpacity: 0.70, weight: 2 });
+        l.setStyle({ fillOpacity: 0.50, weight: 1.5, opacity: 0.5 });
       },
       mouseout: (e) => {
         const l = e.target as L.Path;
-        l.setStyle({ fillOpacity: 0.45, weight: 1 });
+        l.setStyle({ fillOpacity: 0.30, weight: 0.5, opacity: 0.20 });
       },
     });
   };
