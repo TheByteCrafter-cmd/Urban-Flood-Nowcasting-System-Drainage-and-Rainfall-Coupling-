@@ -25,9 +25,12 @@ import {
   Info,
   ChevronRight,
   Activity,
+  Bell,
+  ShieldAlert,
 } from 'lucide-react';
 import { LiveWeatherStatusBar } from '../components/gis/LiveWeatherStatusBar';
 import { FloodLegend } from '../components/gis/FloodLegend';
+import { RiskLegend } from '../components/gis/RiskLegend';
 import { NowcastTimeControl } from '../components/gis/NowcastTimeControl';
 import { fetchLiveWeatherData, getDemoFallbackWeather } from '../services/weatherService';
 import { generateRunoffForecast } from '../services/runoffService';
@@ -36,8 +39,10 @@ import {
   getNodeSurchargeStatus,
 } from '../services/drainageService';
 import { generateCoupledForecast } from '../services/couplingService';
+import { generateRiskForecast } from '../services/riskService';
 import { NormalizedWeatherObservation } from '../types/weather';
 import { CoupledSimulationState, CoupledCellState } from '../types/coupling';
+import { RISK_COLORS } from '../types/risk';
 import { NowcastHour } from '../mock/nowcast';
 
 // Sub-component to manage custom Leaflet panes for z-index layering
@@ -80,6 +85,8 @@ export const NowcastDashboard: React.FC = () => {
   const [selectedHour, setSelectedHour] = useState<NowcastHour>(0);
   const [isDemoScenario, setIsDemoScenario] = useState<boolean>(false);
   const [showDrainageOverlay, setShowDrainageOverlay] = useState<boolean>(true);
+  const [mapViewMode, setMapViewMode] = useState<'depth' | 'risk'>('depth');
+  const [alertScope, setAlertScope] = useState<'horizon' | 'all'>('horizon');
 
   // Load weather: either live IMD observation or explicitly forced demo
   const loadWeatherData = async (forceDemo = false) => {
@@ -122,8 +129,14 @@ export const NowcastDashboard: React.FC = () => {
     return generateCoupledForecast(runoffForecast);
   }, [runoffForecast]);
 
+  // 3. Phase 4B: Flood Risk Scoring & Alerts Engine
+  const riskForecast = useMemo(() => {
+    if (!coupledForecast) return null;
+    return generateRiskForecast(coupledForecast);
+  }, [coupledForecast]);
+
   // Guard if coupled engine is initializing or null
-  if (!coupledForecast) {
+  if (!coupledForecast || !riskForecast) {
     return (
       <div className="flex items-center justify-center min-h-[400px] bg-slate-900 border border-slate-800 rounded-xl text-slate-400 font-sans">
         Initializing 1D-2D Coupled Engine...
@@ -161,8 +174,23 @@ export const NowcastDashboard: React.FC = () => {
     };
   }, [currentCoupledState]);
 
+  // Selected horizon risk state (Phase 4B)
+  const currentRiskState = riskForecast.horizons[`T+${selectedHour}` as 'T+0' | 'T+1' | 'T+2' | 'T+3'];
+
   // Styling for Leaflet GeoJSON surface polygons
   const getCellPathOptions = (feature: any): L.PathOptions => {
+    const cellId = feature?.properties?.cell_id;
+    if (mapViewMode === 'risk') {
+      const assessment = currentRiskState?.cellAssessments.find((a) => a.cellId === cellId);
+      const color = assessment?.color ?? RISK_COLORS.LOW;
+      return {
+        fillColor: color,
+        fillOpacity: 0.72,
+        color: '#0F172A',
+        weight: 1.8,
+        opacity: 0.95,
+      };
+    }
     const depthCm = feature?.properties?.water_depth_cm ?? 0;
     const { color, fillOpacity } = getNowcastDepthStyle(depthCm);
     return {
@@ -179,11 +207,55 @@ export const NowcastDashboard: React.FC = () => {
     const cell = feature.properties as CoupledCellState;
     if (!cell) return;
 
-    const { category, color } = getNowcastDepthStyle(cell.water_depth_cm);
+    const assessment = currentRiskState?.cellAssessments.find((a) => a.cellId === cell.cell_id);
+    const { category, color: depthColor } = getNowcastDepthStyle(cell.water_depth_cm);
 
-    const popupHtml = `
+    const popupHtml = mapViewMode === 'risk' && assessment ? `
+      <div style="font-family: Inter, sans-serif; padding: 6px; min-width: 260px; color: #0f172a;">
+        <div style="border-bottom: 2px solid ${assessment.color}; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <span style="font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: ${assessment.color};">
+            PHASE 4B RISK ASSESSMENT
+          </span>
+          <span style="font-size: 9px; font-weight: 800; color: #fff; background-color: ${assessment.color}; padding: 2px 6px; border-radius: 4px;">
+            ${assessment.riskLevel}
+          </span>
+        </div>
+
+        <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 1px;">${assessment.zoneName}</div>
+        <div style="font-size: 10px; color: #64748b; margin-bottom: 4px; font-family: monospace;">
+          ${assessment.cellId} • Horizon: T+${selectedHour}
+        </div>
+
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px; font-size: 11px; margin-bottom: 6px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+            <span style="color: #64748b;">Water Depth:</span>
+            <strong>${assessment.depth_cm.toFixed(1)} cm (${assessment.depthCategory})</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+            <span style="color: #64748b;">Drainage Node:</span>
+            <strong>${assessment.drainageNodeStatus ?? 'NONE'}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #64748b;">Pipe Overcapacity:</span>
+            <strong style="color: ${assessment.pipeOverCapacity ? '#dc2626' : '#059669'};">${assessment.pipeOverCapacity ? 'YES' : 'NO'}</strong>
+          </div>
+        </div>
+
+        <div style="font-size: 10px; color: #334155; margin-bottom: 6px; line-height: 1.3;">
+          <strong style="color: #475569;">Risk Factors:</strong>
+          <ul style="margin: 2px 0 0 12px; padding: 0;">
+            ${assessment.reasons.map((r) => `<li>${r}</li>`).join('')}
+          </ul>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; font-size: 9px; color: #64748b; border-top: 1px solid #f1f5f9; padding-top: 4px;">
+          <span>Classification: <strong>MODEL OUTPUT / DERIVED</strong></span>
+          <span style="color: ${assessment.color}; font-weight: 700;">Phase 4B Verified</span>
+        </div>
+      </div>
+    ` : `
       <div style="font-family: Inter, sans-serif; padding: 6px; min-width: 250px; color: #0f172a;">
-        <div style="border-bottom: 2px solid ${color}; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+        <div style="border-bottom: 2px solid ${depthColor}; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
           <span style="font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #0369a1;">
             1D-2D COUPLED FLOOD NOWCAST
           </span>
@@ -204,10 +276,10 @@ export const NowcastDashboard: React.FC = () => {
         <div style="font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 1px;">
           Calculated Surface Water Depth
         </div>
-        <div style="font-size: 22px; font-weight: 900; color: ${color === '#DBEAFE' || color === '#E2E8F0' ? '#0f172a' : color}; margin-bottom: 4px; display: flex; align-items: baseline; gap: 4px;">
+        <div style="font-size: 22px; font-weight: 900; color: ${depthColor === '#DBEAFE' || depthColor === '#E2E8F0' ? '#0f172a' : depthColor}; margin-bottom: 4px; display: flex; align-items: baseline; gap: 4px;">
           <span>${cell.water_depth_cm.toFixed(1)}</span>
           <span style="font-size: 13px; font-weight: 600; color: #64748b;">cm</span>
-          <span style="font-size: 11px; font-weight: 800; margin-left: 6px; color: ${color};">(${category} Risk)</span>
+          <span style="font-size: 11px; font-weight: 800; margin-left: 6px; color: ${depthColor};">(${category} Risk)</span>
         </div>
 
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px; font-size: 10px; font-family: monospace; margin-bottom: 6px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
@@ -233,9 +305,13 @@ export const NowcastDashboard: React.FC = () => {
       },
       mouseout: (e) => {
         const l = e.target as L.Path;
-        const depth = cell.water_depth_cm;
-        const { fillOpacity } = getNowcastDepthStyle(depth);
-        l.setStyle({ fillOpacity, weight: depth >= 20 ? 1.8 : 1.2 });
+        if (mapViewMode === 'risk') {
+          l.setStyle({ fillOpacity: 0.72, weight: 1.8 });
+        } else {
+          const depth = cell.water_depth_cm;
+          const { fillOpacity } = getNowcastDepthStyle(depth);
+          l.setStyle({ fillOpacity, weight: depth >= 20 ? 1.8 : 1.2 });
+        }
       },
     });
   };
@@ -270,11 +346,14 @@ export const NowcastDashboard: React.FC = () => {
               <h1 className="text-lg font-bold text-white tracking-wide flex items-center gap-2">
                 0–3 Hour Predictive Nowcast
                 <span className="text-xs font-mono font-bold bg-sky-950 text-sky-300 border border-sky-800/80 px-2 py-0.5 rounded">
-                  PHASE 4A
+                  PHASE 4A/4B
+                </span>
+                <span className="text-xs font-mono font-bold bg-amber-950 text-amber-300 border border-amber-800/80 px-2 py-0.5 rounded">
+                  RISK &amp; ALERTS
                 </span>
               </h1>
               <p className="text-xs text-slate-400">
-                Coupled Surface Hydrology (Phase 3B) &amp; Underground Drainage Hydraulics (Phase 3D)
+                Coupled Surface Hydrology (Phase 3B), Underground Drainage (Phase 3D), &amp; Risk Scoring Engine (Phase 4B)
               </p>
             </div>
           </div>
@@ -409,7 +488,7 @@ export const NowcastDashboard: React.FC = () => {
         {/* Left Column: Leaflet GIS Map (Occupies 8/12 cols) */}
         <div className="lg:col-span-8 h-full relative rounded-xl overflow-hidden border border-slate-800 shadow-2xl bg-slate-950 flex flex-col">
           {/* Map Top Bar: Layer Badges & Controls */}
-          <div className="absolute top-3 left-3 z-[1000] flex flex-wrap items-center gap-2">
+          <div className="absolute top-3 left-3 z-[1000] flex flex-wrap items-center gap-2 max-w-[calc(100%-360px)]">
             <div className="bg-slate-900/95 backdrop-blur-md text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700 shadow-md flex items-center gap-2 text-xs">
               <Layers className="w-3.5 h-3.5 text-sky-400" />
               <span className="font-bold">2D Coupled Inundation</span>
@@ -426,8 +505,34 @@ export const NowcastDashboard: React.FC = () => {
               }`}
             >
               <ArrowDownUp className="w-3 h-3" />
-              {showDrainageOverlay ? 'Drainage Network: ON' : 'Drainage Network: OFF'}
+              {showDrainageOverlay ? 'Drainage: ON' : 'Drainage: OFF'}
             </button>
+
+            <div className="flex items-center bg-slate-900/95 backdrop-blur-md rounded-lg p-0.5 border border-slate-700 text-xs">
+              <button
+                type="button"
+                onClick={() => setMapViewMode('depth')}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                  mapViewMode === 'depth'
+                    ? 'bg-sky-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Depth Layer (4A)
+              </button>
+              <button
+                type="button"
+                onClick={() => setMapViewMode('risk')}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                  mapViewMode === 'risk'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <ShieldAlert className="w-3.5 h-3.5 text-amber-300" />
+                Risk Layer (4B)
+              </button>
+            </div>
           </div>
 
           {/* Horizon Time Controls (Top Right Overlay) */}
@@ -474,7 +579,7 @@ export const NowcastDashboard: React.FC = () => {
               {/* 2D Coupled Surface Grid Cells (GeoJSON) */}
               {coupledGeoJSON && (
                 <GeoJSON
-                  key={`coupled-geojson-h${selectedHour}-${isDemoScenario ? 'demo' : 'live'}`}
+                  key={`coupled-geojson-h${selectedHour}-${isDemoScenario ? 'demo' : 'live'}-${mapViewMode}`}
                   data={coupledGeoJSON as any}
                   pane="coupledSurfacePane"
                   style={getCellPathOptions}
@@ -569,8 +674,12 @@ export const NowcastDashboard: React.FC = () => {
           </div>
 
           {/* Bottom Left Legend */}
-          <div className="absolute bottom-3 left-3 z-[1000]">
-            <FloodLegend badgeText="MODEL OUTPUT / DERIVED" />
+          <div className="absolute bottom-3 left-3 z-[1000] pointer-events-auto">
+            {mapViewMode === 'risk' ? (
+              <RiskLegend badgeText="MODEL OUTPUT / DERIVED" />
+            ) : (
+              <FloodLegend badgeText="MODEL OUTPUT / DERIVED" />
+            )}
           </div>
 
           {/* Bottom Right Attribution Bar */}
@@ -700,6 +809,25 @@ export const NowcastDashboard: React.FC = () => {
               </div>
             </div>
 
+            {/* Phase 4B: Risk Assessment Summary Row */}
+            <div className="bg-slate-950/90 rounded-lg p-2.5 border border-slate-800 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1.5">
+                <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+                <div>
+                  <div className="text-[10px] text-slate-400">Multi-factor Flood Risk:</div>
+                  <div className="font-bold text-slate-200">
+                    Horizon: {currentRiskState.highestRisk} • Surcharged: {currentRiskState.surchargedNodeCount} • Overcap: {currentRiskState.overCapacityPipeCount}
+                  </div>
+                </div>
+              </div>
+              <span
+                className="font-mono font-extrabold text-white text-[11px] px-2.5 py-0.5 rounded shadow-xs"
+                style={{ backgroundColor: RISK_COLORS[currentRiskState.highestRisk] }}
+              >
+                {currentRiskState.highestRisk}
+              </span>
+            </div>
+
             {/* Mass Balance Verification */}
             <div className="bg-slate-950/90 rounded-lg p-2.5 border border-emerald-900/60 flex items-center justify-between text-xs">
               <div className="flex items-center gap-1.5">
@@ -715,6 +843,108 @@ export const NowcastDashboard: React.FC = () => {
                 100% CONSERVED
               </span>
             </div>
+          </div>
+
+          {/* Phase 4B: Infrastructure & Flood Risk Alerts Panel */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-xl space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Bell className="w-4 h-4 text-amber-400" />
+                  {currentRiskState.alerts.length > 0 && (
+                    <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  )}
+                </div>
+                <h3 className="text-xs font-bold tracking-wider uppercase text-amber-300 flex items-center gap-1.5">
+                  <span>Risk Alerts</span>
+                  <span className="text-[10px] px-1.5 py-0.2 bg-amber-950 text-amber-300 rounded border border-amber-800">
+                    {alertScope === 'horizon' ? currentRiskState.alerts.length : riskForecast.allAlerts.length} ACTIVE
+                  </span>
+                </h3>
+              </div>
+
+              {/* Scope Selector: Selected Horizon vs All Horizons */}
+              <div className="flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => setAlertScope('horizon')}
+                  className={`px-2 py-0.5 rounded transition-colors font-medium cursor-pointer ${
+                    alertScope === 'horizon'
+                      ? 'bg-amber-600 text-white font-bold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  T+{selectedHour}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAlertScope('all')}
+                  className={`px-2 py-0.5 rounded transition-colors font-medium cursor-pointer ${
+                    alertScope === 'all'
+                      ? 'bg-amber-600 text-white font-bold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  All (0–3h)
+                </button>
+              </div>
+            </div>
+
+            {/* Alerts List */}
+            {(() => {
+              const displayedAlerts = alertScope === 'horizon' ? currentRiskState.alerts : riskForecast.allAlerts;
+              if (displayedAlerts.length === 0) {
+                return (
+                  <div className="bg-emerald-950/40 border border-emerald-800/60 rounded-xl p-3 flex items-center gap-2.5 text-xs text-emerald-300">
+                    <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div className="text-[11px] leading-tight">
+                      <div className="font-bold text-emerald-200">No active flood risk alerts.</div>
+                      <div className="text-emerald-400/80">Surface depth and drainage surcharge are within safe operational thresholds.</div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                  {displayedAlerts.map((alert) => {
+                    const sevColor = RISK_COLORS[alert.severity] || '#f59e0b';
+                    return (
+                      <div
+                        key={alert.id}
+                        className="bg-slate-950/80 border border-slate-800 rounded-lg p-2.5 space-y-1.5 transition-colors hover:border-slate-700"
+                      >
+                        <div className="flex items-center justify-between gap-1 text-[10px]">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className="px-1.5 py-0.5 rounded font-extrabold text-white text-[9px]"
+                              style={{ backgroundColor: sevColor }}
+                            >
+                              {alert.severity}
+                            </span>
+                            <span className="font-mono font-bold text-slate-300 bg-slate-900 px-1 py-0.5 rounded border border-slate-800">
+                              {alert.horizon}
+                            </span>
+                            <span className="font-medium text-slate-400">{alert.type.replace(/_/g, ' ')}</span>
+                          </div>
+                          <span className="font-mono font-bold text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-900/60">
+                            {alert.metricValue.toFixed(1)} {alert.metricUnit}
+                          </span>
+                        </div>
+
+                        <div className="text-xs font-bold text-slate-100">{alert.title}</div>
+                        <div className="text-[11px] text-slate-400 leading-snug">{alert.description}</div>
+
+                        <div className="flex items-center justify-between text-[9px] text-slate-500 pt-1 border-t border-slate-800/80">
+                          <span>Location: <strong className="text-slate-400">{alert.location}</strong></span>
+                          <span>Provenance: <strong className="text-slate-400">{alert.provenance}</strong></span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
           {/* B. Horizon Comparison View (Requirement 7) */}
@@ -862,12 +1092,13 @@ export const NowcastDashboard: React.FC = () => {
                     })}
                   </tr>
 
-                  {/* Row 6: Risk */}
+                  {/* Row 6: Multi-factor Risk (Phase 4B) */}
                   <tr>
                     <td className="py-2 pr-2 font-sans font-medium text-slate-400">Risk Level</td>
                     {([0, 1, 2, 3] as const).map((h) => {
-                      const maxD = coupledForecast.horizons[h].max_water_depth_cm;
-                      const { category, color } = getNowcastDepthStyle(maxD);
+                      const hKey = `T+${h}` as 'T+0' | 'T+1' | 'T+2' | 'T+3';
+                      const hRisk = riskForecast.horizons[hKey].highestRisk;
+                      const color = RISK_COLORS[hRisk];
                       const isActive = selectedHour === h;
                       return (
                         <td
@@ -878,10 +1109,39 @@ export const NowcastDashboard: React.FC = () => {
                           }`}
                         >
                           <span
-                            className="px-1.5 py-0.5 rounded text-[10px] font-bold text-white inline-block"
-                            style={{ backgroundColor: color === '#DBEAFE' || color === '#E2E8F0' ? '#64748b' : color }}
+                            className="px-1.5 py-0.5 rounded text-[10px] font-extrabold text-white inline-block shadow-xs"
+                            style={{ backgroundColor: color }}
                           >
-                            {category}
+                            {hRisk}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {/* Row 7: Active Risk Alerts (Phase 4B) */}
+                  <tr>
+                    <td className="py-2 pr-2 font-sans font-medium text-slate-400">Active Alerts</td>
+                    {([0, 1, 2, 3] as const).map((h) => {
+                      const hKey = `T+${h}` as 'T+0' | 'T+1' | 'T+2' | 'T+3';
+                      const alertCount = riskForecast.horizons[hKey].alerts.length;
+                      const isActive = selectedHour === h;
+                      return (
+                        <td
+                          key={h}
+                          onClick={() => setSelectedHour(h)}
+                          className={`py-2 px-2 text-center cursor-pointer transition-colors ${
+                            isActive ? 'bg-sky-950/40 font-bold' : ''
+                          }`}
+                        >
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
+                              alertCount > 0
+                                ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                                : 'text-slate-500'
+                            }`}
+                          >
+                            {alertCount}
                           </span>
                         </td>
                       );

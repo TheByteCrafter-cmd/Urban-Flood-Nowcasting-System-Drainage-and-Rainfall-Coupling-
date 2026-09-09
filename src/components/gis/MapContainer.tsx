@@ -14,6 +14,7 @@ import { SurfaceFlowSummaryCard } from './SurfaceFlowSummaryCard';
 import { DrainageLegend } from './DrainageLegend';
 import { DrainageSummaryCard } from './DrainageSummaryCard';
 import { CoupledSummaryCard } from './CoupledSummaryCard';
+import { RiskLegend } from './RiskLegend';
 import { NowcastTimeControl } from './NowcastTimeControl';
 import { MOCK_RAINFALL_GEOJSON, RainfallFeatureProperties } from '../../mock/rainfall';
 import { MOCK_DEM_GEOJSON } from '../../mock/dem';
@@ -28,6 +29,7 @@ import { generateRunoffForecast } from '../../services/runoffService';
 import { generateSurfaceFlowForecast } from '../../services/surfaceFlowService';
 import { generateDrainageForecast, getPipeUtilizationCategory, getNodeSurchargeStatus } from '../../services/drainageService';
 import { generateCoupledForecast } from '../../services/couplingService';
+import { generateRiskForecast } from '../../services/riskService';
 import L from 'leaflet';
 
 interface MapContainerProps {
@@ -79,6 +81,10 @@ const MapPanes: React.FC = () => {
       const coupledPane = map.createPane('coupledPane');
       coupledPane.style.zIndex = '505'; // 1D-2D Coupled flood layer pane (Phase 3D)
     }
+    if (!map.getPane('riskPane')) {
+      const riskPane = map.createPane('riskPane');
+      riskPane.style.zIndex = '508'; // Flood Risk Scoring Layer pane (Phase 4B)
+    }
   }, [map]);
   return null;
 };
@@ -99,6 +105,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   const [showSurfaceFlow, setShowSurfaceFlow] = useState<boolean>(true); // Default ON for Phase 3B
   const [showDrainage, setShowDrainage] = useState<boolean>(true); // Default ON for Phase 3C
   const [showCoupled, setShowCoupled] = useState<boolean>(true); // Default ON for Phase 3D
+  const [showRisk, setShowRisk] = useState<boolean>(false); // Phase 4B Risk Scoring
   const [showFlood, setShowFlood] = useState<boolean>(true); // Default ON for Phase 2B-3 Demo
   const [selectedNowcastHour, setSelectedNowcastHour] = useState<NowcastHour>(0); // Default T+0 Current
   const [activeHudTab, setActiveHudTab] = useState<'coupled' | 'drainage' | 'flow' | 'runoff'>('coupled'); // Active HUD tab
@@ -134,6 +141,10 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     if (active) setActiveHudTab('coupled');
   };
 
+  const handleToggleRisk = (active: boolean) => {
+    setShowRisk(active);
+  };
+
   const handleToggleFlood = (active: boolean) => {
     setShowFlood(active);
   };
@@ -165,6 +176,12 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     return null;
   }, [coupledForecast, activeRunoffForecast]);
 
+  // Derive Risk Forecast from Coupled Forecast (Phase 4B)
+  const activeRiskForecast = React.useMemo(() => {
+    if (activeCoupledForecast) return generateRiskForecast(activeCoupledForecast);
+    return null;
+  }, [activeCoupledForecast]);
+
   // Keep live references so that popups always read the exact current forecast & horizon
   const forecastRef = React.useRef(activeRunoffForecast);
   forecastRef.current = activeRunoffForecast;
@@ -174,6 +191,9 @@ export const MapContainer: React.FC<MapContainerProps> = ({
 
   const coupledForecastRef = React.useRef(activeCoupledForecast);
   coupledForecastRef.current = activeCoupledForecast;
+
+  const riskForecastRef = React.useRef(activeRiskForecast);
+  riskForecastRef.current = activeRiskForecast;
 
   const hourRef = React.useRef(selectedNowcastHour);
   hourRef.current = selectedNowcastHour;
@@ -240,6 +260,30 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       })),
     };
   }, [activeCoupledForecast, selectedNowcastHour]);
+
+  // Construct GeoJSON FeatureCollection for the current Risk Assessment horizon (Phase 4B)
+  const riskGeoJSON = React.useMemo(() => {
+    if (!activeRiskForecast || !activeCoupledForecast) return null;
+    const horizonKey = `T+${selectedNowcastHour}` as 'T+0' | 'T+1' | 'T+2' | 'T+3';
+    const riskState = activeRiskForecast.horizons[horizonKey];
+    const coupledState = activeCoupledForecast.horizons[selectedNowcastHour];
+    if (!riskState || !coupledState) return null;
+
+    return {
+      type: 'FeatureCollection',
+      features: riskState.cellAssessments.map((assessment) => {
+        const cell = coupledState.cells.find((c) => c.cell_id === assessment.cellId);
+        return {
+          type: 'Feature',
+          id: assessment.cellId,
+          geometry: cell?.geometry,
+          properties: {
+            ...assessment,
+          },
+        };
+      }),
+    };
+  }, [activeRiskForecast, activeCoupledForecast, selectedNowcastHour]);
 
   // DEM Elevation GeoJSON Styling (Subtle & Muted Terrain Palette, fillOpacity 0.30 - Non-interactive terrain context)
   const getDEMStyle = (feature: any): L.PathOptions => {
@@ -687,6 +731,85 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     });
   };
 
+  // Risk Assessment GeoJSON Styling (Phase 4B)
+  const getRiskStyle = (feature: any): L.PathOptions => {
+    const color = feature?.properties?.color ?? '#10b981';
+    return {
+      fillColor: color,
+      fillOpacity: 0.65,
+      color: '#0F172A',
+      weight: 2,
+      opacity: 0.90,
+    };
+  };
+
+  const onEachRiskFeature = (feature: any, layer: L.Layer) => {
+    layer.bindPopup(() => {
+      const currentForecast = riskForecastRef.current;
+      const currentHour = hourRef.current;
+      const horizonKey = `T+${currentHour}` as 'T+0' | 'T+1' | 'T+2' | 'T+3';
+      const state = currentForecast?.horizons[horizonKey];
+      const assessment = state?.cellAssessments.find((a) => a.cellId === feature.id);
+
+      if (!assessment) {
+        return '<div style="padding: 8px; font-family: Inter, sans-serif; font-size: 11px;">No assessment available</div>';
+      }
+
+      return `
+        <div style="font-family: Inter, sans-serif; padding: 6px; min-width: 250px;">
+          <div style="border-bottom: 2px solid ${assessment.color}; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+            <span style="font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: ${assessment.color};">RISK ASSESSMENT</span>
+            <span style="font-size: 9px; font-weight: 800; color: #fff; background-color: ${assessment.color}; padding: 2px 6px; border-radius: 4px;">${assessment.riskLevel}</span>
+          </div>
+          <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 1px;">${assessment.zoneName}</div>
+          <div style="font-size: 10px; color: #64748b; margin-bottom: 4px; font-family: monospace;">${assessment.cellId} • Horizon: T+${currentHour}</div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px; font-size: 11px; margin-bottom: 6px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+              <span style="color: #64748b;">Inundation Depth:</span>
+              <strong>${assessment.depth_cm.toFixed(1)} cm</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+              <span style="color: #64748b;">Baseline Depth Risk:</span>
+              <span>${assessment.depthCategory}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+              <span style="color: #64748b;">Drainage Node Status:</span>
+              <strong>${assessment.drainageNodeStatus ?? 'NONE'}</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #64748b;">Pipe Overcapacity:</span>
+              <strong style="color: ${assessment.pipeOverCapacity ? '#dc2626' : '#059669'};">${assessment.pipeOverCapacity ? 'YES' : 'NO'}</strong>
+            </div>
+          </div>
+
+          <div style="font-size: 10px; color: #334155; margin-bottom: 6px; line-height: 1.3;">
+            <strong style="color: #475569;">Factors:</strong>
+            <ul style="margin: 2px 0 0 12px; padding: 0;">
+              ${assessment.reasons.map((r) => `<li>${r}</li>`).join('')}
+            </ul>
+          </div>
+
+          <div style="font-size: 9px; color: #64748b; display: flex; justify-content: space-between; border-top: 1px solid #f1f5f9; padding-top: 4px;">
+            <span>Classification: <strong>MODEL OUTPUT / DERIVED</strong></span>
+            <span style="color: ${assessment.color}; font-weight: 600;">PHASE 4B</span>
+          </div>
+        </div>
+      `;
+    });
+
+    layer.on({
+      mouseover: (e) => {
+        const l = e.target as L.Path;
+        l.setStyle({ fillOpacity: 0.85, weight: 2.5 });
+      },
+      mouseout: (e) => {
+        const l = e.target as L.Path;
+        l.setStyle({ fillOpacity: 0.65, weight: 1.5 });
+      },
+    });
+  };
+
   return (
     <div className={`relative bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-xs flex flex-col ${className}`}>
       {/* Top Left Context Overlay */}
@@ -741,6 +864,8 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           onToggleDrainage={handleToggleDrainage}
           showCoupled={showCoupled}
           onToggleCoupled={handleToggleCoupled}
+          showRisk={showRisk}
+          onToggleRisk={handleToggleRisk}
         />
       </div>
 
@@ -834,7 +959,9 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         {showRunoff && <RunoffLegend />}
         {showSurfaceFlow && <SurfaceFlowLegend />}
         {showDrainage && <DrainageLegend />}
-        {showFlood && <FloodLegend />}
+        {showCoupled && <FloodLegend badgeText="COUPLED DEPTH" />}
+        {showRisk && <RiskLegend />}
+        {showFlood && !showCoupled && <FloodLegend />}
       </div>
 
       {/* Leaflet Map Canvas */}
@@ -904,6 +1031,17 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             style={getCoupledStyle}
             onEachFeature={onEachCoupledFeature}
             pane="coupledPane"
+          />
+        )}
+
+        {/* 4.8. Flood Risk Scoring Layer (Phase 4B: riskPane, zIndex 508) */}
+        {showRisk && riskGeoJSON && (
+          <GeoJSON
+            key={`risk-h${selectedNowcastHour}-${activeRiskForecast?.highestRiskAcrossAllHorizons}`}
+            data={riskGeoJSON as any}
+            style={getRiskStyle}
+            onEachFeature={onEachRiskFeature}
+            pane="riskPane"
           />
         )}
 

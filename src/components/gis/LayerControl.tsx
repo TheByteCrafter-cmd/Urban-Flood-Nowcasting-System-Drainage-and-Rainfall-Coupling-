@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, CloudRain, Mountain, Droplets, Waves, Compass, GitCommit, Cpu, Check } from 'lucide-react';
+import { Layers, CloudRain, Mountain, Droplets, Waves, Compass, GitCommit, Cpu, Check, ShieldAlert } from 'lucide-react';
 
 interface LayerControlProps {
   showRainfall: boolean;
@@ -16,6 +16,8 @@ interface LayerControlProps {
   onToggleDrainage?: (active: boolean) => void;
   showCoupled?: boolean;
   onToggleCoupled?: (active: boolean) => void;
+  showRisk?: boolean;
+  onToggleRisk?: (active: boolean) => void;
   className?: string;
 }
 
@@ -34,6 +36,8 @@ export const LayerControl: React.FC<LayerControlProps> = ({
   onToggleDrainage,
   showCoupled = false,
   onToggleCoupled,
+  showRisk = false,
+  onToggleRisk,
   className = '',
 }) => {
   return (
@@ -249,6 +253,35 @@ export const LayerControl: React.FC<LayerControlProps> = ({
             </div>
             <span className="text-[10px] font-semibold text-sky-300 bg-sky-950/80 px-1.5 py-0.5 rounded border border-sky-700/60">
               PHASE 3D
+            </span>
+          </label>
+        )}
+
+        {/* Flood Risk Scoring Layer Toggle (Phase 4B Active) */}
+        {onToggleRisk && (
+          <label
+            onClick={() => onToggleRisk(!showRisk)}
+            className={`flex items-center justify-between p-2 rounded-lg border cursor-pointer transition-colors ${
+              showRisk
+                ? 'bg-amber-950/80 border-amber-600/80 text-white'
+                : 'bg-slate-800/40 border-slate-700/40 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-4 h-4 rounded flex items-center justify-center transition-colors ${
+                  showRisk ? 'bg-amber-600 text-white' : 'border border-slate-600 bg-slate-800'
+                }`}
+              >
+                {showRisk && <Check className="w-3 h-3" />}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <ShieldAlert className={`w-3.5 h-3.5 ${showRisk ? 'text-amber-400' : 'text-slate-400'}`} />
+                <span className="font-medium">Risk Assessment</span>
+              </div>
+            </div>
+            <span className="text-[10px] font-semibold text-amber-300 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-700/60">
+              PHASE 4B
             </span>
           </label>
         )}
