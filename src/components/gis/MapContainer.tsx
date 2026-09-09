@@ -99,14 +99,14 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         setMapReady(true);
         setCurrentZoom(Math.round(map.getZoom() * 10) / 10);
 
-        // Add Mock Rainfall Source & Layers
+        // Register Centralized Mock Rainfall GeoJSON Source
         if (!map.getSource('rainfall-mock-source')) {
           map.addSource('rainfall-mock-source', {
             type: 'geojson',
             data: MOCK_RAINFALL_GEOJSON,
           });
 
-          // Semi-transparent Fill Layer (55% opacity for base map readability)
+          // Semi-transparent Fill Layer with MapLibre Step Color Interpolation
           map.addLayer({
             id: 'rainfall-fill-layer',
             type: 'fill',
@@ -115,12 +115,20 @@ export const MapContainer: React.FC<MapContainerProps> = ({
               visibility: 'visible',
             },
             paint: {
-              'fill-color': ['get', 'color'],
-              'fill-opacity': 0.55,
+              'fill-color': [
+                'step',
+                ['get', 'rainfall_intensity_mm_hr'],
+                '#DBEAFE', // 0-5 mm/hr (Very Low)
+                5, '#93C5FD', // 5-20 mm/hr (Low)
+                20, '#60A5FA', // 20-50 mm/hr (Moderate)
+                50, '#F59E0B', // 50-100 mm/hr (High)
+                100, '#DC2626', // >100 mm/hr (Extreme)
+              ],
+              'fill-opacity': 0.65, // Balanced opacity for high overlay visibility while retaining base map roads
             },
           });
 
-          // Polygon Boundary Outline Layer
+          // Distinct Polygon Boundary Stroke Layer
           map.addLayer({
             id: 'rainfall-outline-layer',
             type: 'line',
@@ -129,14 +137,14 @@ export const MapContainer: React.FC<MapContainerProps> = ({
               visibility: 'visible',
             },
             paint: {
-              'line-color': '#1E293B',
+              'line-color': '#0F172A',
               'line-width': 1.5,
-              'line-opacity': 0.6,
+              'line-opacity': 0.7,
             },
           });
         }
 
-        // Lightweight Click Inspector for Rainfall Cells
+        // Lightweight Click Inspector Popup for Rainfall Grid Cells
         map.on('click', 'rainfall-fill-layer', (e) => {
           if (!e.features || e.features.length === 0) return;
           const props = e.features[0].properties as RainfallFeatureProperties;
@@ -148,17 +156,17 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           const popupContent = document.createElement('div');
           popupContent.className = 'p-2 space-y-1 text-slate-900 font-sans';
           popupContent.innerHTML = `
-            <div className="flex items-center justify-between gap-2 border-b border-slate-200 pb-1">
-              <span className="font-bold text-xs text-slate-800">${props.zone_name}</span>
-              <span className="text-[9px] font-semibold text-amber-800 bg-amber-100 px-1 py-0.5 rounded">DEMO DATA</span>
+            <div style="border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 4px;">
+              <span style="font-weight: 700; font-size: 12px; color: #0f172a;">${props.zone_name}</span>
+              <span style="font-size: 9px; font-weight: 600; color: #92400e; background-color: #fef3c7; padding: 2px 4px; border-radius: 4px; margin-left: 6px;">DEMO DATA</span>
             </div>
-            <div className="text-xs">
-              <span className="text-slate-500">Intensity:</span>
-              <span className="font-bold text-blue-700 ml-1">${props.rainfall_intensity_mm_hr} mm/hr</span>
+            <div style="font-size: 12px;">
+              <span style="color: #64748b;">Rainfall Intensity:</span>
+              <span style="font-weight: 700; color: #1d4ed8; margin-left: 4px;">${props.rainfall_intensity_mm_hr} mm/hr</span>
             </div>
-            <div className="text-[11px] text-slate-600">
-              <span>Category: </span>
-              <span className="font-semibold" style="color: ${props.color}">${props.category} mm/hr</span>
+            <div style="font-size: 11px; color: #475569;">
+              <span>Classification: </span>
+              <span style="font-weight: 700; color: ${props.color};">${props.category} mm/hr</span>
             </div>
           `;
 
@@ -168,7 +176,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             .addTo(map);
         });
 
-        // Change cursor on hover
+        // Pointer cursor feedback on hover
         map.on('mouseenter', 'rainfall-fill-layer', () => {
           map.getCanvas().style.cursor = 'pointer';
         });
