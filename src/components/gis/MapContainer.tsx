@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { MapContainer as LeafletMap, TileLayer, GeoJSON } from 'react-leaflet';
+import React, { useState, useEffect } from 'react';
+import { MapContainer as LeafletMap, TileLayer, GeoJSON, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Layers } from 'lucide-react';
 import { DemoBadge } from '../ui/DemoBadge';
@@ -18,6 +18,22 @@ interface MapContainerProps {
   onMapLoad?: (map: L.Map) => void;
   className?: string;
 }
+
+// Sub-component to initialize custom Leaflet panes for z-index layer separation
+const MapPanes: React.FC = () => {
+  const map = useMap();
+  useEffect(() => {
+    if (!map.getPane('demPane')) {
+      const demPane = map.createPane('demPane');
+      demPane.style.zIndex = '400'; // Base terrain layer pane
+    }
+    if (!map.getPane('rainfallPane')) {
+      const rainfallPane = map.createPane('rainfallPane');
+      rainfallPane.style.zIndex = '450'; // Overlay meteorological pane
+    }
+  }, [map]);
+  return null;
+};
 
 export const MapContainer: React.FC<MapContainerProps> = ({
   cityName = 'Mumbai Metropolitan Region',
@@ -68,12 +84,13 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     if (!props) return;
 
     const popupContent = `
-      <div style="font-family: Inter, sans-serif; padding: 4px; min-width: 140px;">
+      <div style="font-family: Inter, sans-serif; padding: 4px; min-width: 150px;">
         <div style="border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-          <span style="font-weight: 700; font-size: 13px; color: #0f172a;">${props.zone_name || 'Mumbai Zone'}</span>
+          <span style="font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #166534;">DEM / ELEVATION</span>
           <span style="font-size: 9px; font-weight: 700; color: #92400e; background-color: #fef3c7; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px;">DEMO DATA</span>
         </div>
-        <div style="font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase; tracking: 0.5px; margin-bottom: 2px;">Elevation</div>
+        <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 4px;">${props.zone_name || 'Mumbai Zone'}</div>
+        <div style="font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase; margin-bottom: 2px;">Elevation</div>
         <div style="font-size: 18px; font-weight: 800; color: #166534; margin-bottom: 4px;">
           ${props.elevation_m} m
         </div>
@@ -127,16 +144,17 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     if (!props) return;
 
     const popupContent = `
-      <div style="font-family: Inter, sans-serif; padding: 4px; min-width: 140px;">
+      <div style="font-family: Inter, sans-serif; padding: 4px; min-width: 150px;">
         <div style="border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-          <span style="font-weight: 700; font-size: 13px; color: #0f172a;">${props.zone_name || 'Mumbai Zone'}</span>
+          <span style="font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #1d4ed8;">RAINFALL</span>
           <span style="font-size: 9px; font-weight: 700; color: #92400e; background-color: #fef3c7; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px;">DEMO DATA</span>
         </div>
-        <div style="font-size: 12px; margin-bottom: 4px;">
-          <span style="color: #64748b;">Rainfall Intensity:</span>
-          <span style="font-weight: 800; color: #1d4ed8; font-size: 13px; margin-left: 4px;">${props.rainfall_intensity_mm_hr} mm/hr</span>
+        <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 4px;">${props.zone_name || 'Mumbai Zone'}</div>
+        <div style="font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase; margin-bottom: 2px;">Rainfall Intensity</div>
+        <div style="font-size: 18px; font-weight: 800; color: #1d4ed8; margin-bottom: 4px;">
+          ${props.rainfall_intensity_mm_hr} mm/hr
         </div>
-        <div style="font-size: 11px; color: #475569;">
+        <div style="font-size: 11px; color: #64748b;">
           <span>Category: </span>
           <span style="font-weight: 700; color: ${props.color};">${props.category} mm/hr</span>
         </div>
@@ -201,28 +219,32 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         zoomControl={true}
         className="w-full flex-1 min-h-[500px] z-0"
       >
+        <MapPanes />
+
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        {/* 1. DEM Terrain Elevation Layer (Layer Order: Base Map -> DEM -> Rainfall) */}
+        {/* 1. DEM Terrain Elevation Layer (demPane, zIndex 400) */}
         {showDEM && (
           <GeoJSON
             key="dem-geojson-layer"
             data={MOCK_DEM_GEOJSON as any}
             style={getDEMStyle}
             onEachFeature={onEachDEMFeature}
+            pane="demPane"
           />
         )}
 
-        {/* 2. Rainfall Intensity Layer (Sits on top of DEM layer) */}
+        {/* 2. Rainfall Intensity Layer (rainfallPane, zIndex 450) */}
         {showRainfall && (
           <GeoJSON
             key="rainfall-geojson-layer"
             data={MOCK_RAINFALL_GEOJSON as any}
             style={getRainfallStyle}
             onEachFeature={onEachRainfallFeature}
+            pane="rainfallPane"
           />
         )}
       </LeafletMap>
