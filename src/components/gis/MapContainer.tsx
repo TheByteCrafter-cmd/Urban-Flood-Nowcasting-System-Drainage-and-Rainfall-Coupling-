@@ -16,7 +16,7 @@ import { FloodFeatureProperties } from '../../mock/flood';
 import { PROTOTYPE_CATCHMENTS } from '../../mock/catchments';
 import { MOCK_NOWCAST_TIMESTEPS, NowcastHour } from '../../mock/nowcast';
 import { NormalizedWeatherObservation } from '../../types/weather';
-import { RunoffForecast } from '../../types/runoff';
+import { RunoffForecast, RunoffDataStatus } from '../../types/runoff';
 import { generateRunoffForecast } from '../../services/runoffService';
 import L from 'leaflet';
 
@@ -94,6 +94,13 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     if (weather) return generateRunoffForecast(weather);
     return null;
   }, [runoffForecast, weather]);
+
+  // Keep live references so that popups always read the exact current forecast & horizon
+  const forecastRef = React.useRef(activeRunoffForecast);
+  forecastRef.current = activeRunoffForecast;
+
+  const hourRef = React.useRef(selectedNowcastHour);
+  hourRef.current = selectedNowcastHour;
 
   // Construct GeoJSON FeatureCollection for the current nowcast horizon
   const runoffGeoJSON = React.useMemo(() => {
@@ -292,56 +299,81 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     };
   };
 
+  const getStatusBadgeHtml = (status: RunoffDataStatus) => {
+    switch (status) {
+      case 'LIVE':
+        return '<span style="font-size: 9px; font-weight: 800; color: #065f46; background-color: #d1fae5; border: 1px solid #6ee7b7; padding: 2px 6px; border-radius: 4px;">LIVE RUNOFF</span>';
+      case 'DERIVED':
+        return '<span style="font-size: 9px; font-weight: 800; color: #0e7490; background-color: #ecfeff; border: 1px solid #a5f3fc; padding: 2px 6px; border-radius: 4px;">DERIVED NOWCAST</span>';
+      case 'STALE':
+        return '<span style="font-size: 9px; font-weight: 800; color: #92400e; background-color: #fef3c7; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px;">STALE INPUT</span>';
+      case 'DEMO':
+        return '<span style="font-size: 9px; font-weight: 800; color: #1e40af; background-color: #dbeafe; border: 1px solid #93c5fd; padding: 2px 6px; border-radius: 4px;">DEMO BASELINE</span>';
+      case 'ERROR':
+        return '<span style="font-size: 9px; font-weight: 800; color: #991b1b; background-color: #fee2e2; border: 1px solid #fca5a5; padding: 2px 6px; border-radius: 4px;">ERROR</span>';
+    }
+  };
+
   const onEachRunoffFeature = (feature: any, layer: L.Layer) => {
-    const props = feature.properties;
-    if (!props) return;
+    layer.bindPopup(() => {
+      const currentForecast = forecastRef.current;
+      const currentHour = hourRef.current;
+      const grid = currentForecast?.horizons[currentHour];
+      const cellIdx = PROTOTYPE_CATCHMENTS.findIndex((c) => c.cell_id === feature.id);
+      const cellState = grid?.cells[cellIdx];
+      const catchment = PROTOTYPE_CATCHMENTS[cellIdx];
 
-    const popupContent = `
-      <div style="font-family: Inter, sans-serif; padding: 6px; min-width: 220px;">
-        <div style="border-bottom: 2px solid #06b6d4; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-          <span style="font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #0891b2;">RUNOFF GENERATION</span>
-          <span style="font-size: 9px; font-weight: 700; color: #0e7490; background-color: #ecfeff; border: 1px solid #a5f3fc; padding: 2px 6px; border-radius: 4px;">PHASE 3A</span>
-        </div>
-        <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 1px;">${props.zone_name || 'Hydrological Cell'}</div>
-        <div style="font-size: 10px; color: #64748b; margin-bottom: 4px; font-family: monospace;">${props.cell_id} • Area: ${(props.area_m2 / 1e6).toFixed(1)} km²</div>
+      if (!cellState || !catchment) {
+        return '<div style="padding: 8px; font-family: Inter, sans-serif; font-size: 11px;">No telemetry data available</div>';
+      }
 
-        <div style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #0284c7; background-color: #f0f9ff; border: 1px solid #bae6fd; padding: 2px 6px; border-radius: 4px; margin-bottom: 6px;">
-          HORIZON: T+${selectedNowcastHour} (${selectedNowcastHour === 0 ? 'CURRENT' : `+${selectedNowcastHour}H`}) [${props.status || 'DEMO'}]
-        </div>
+      const statusBadge = getStatusBadgeHtml(cellState.status);
 
-        <div style="font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 1px;">Runoff Flow Rate (q_gen)</div>
-        <div style="font-size: 20px; font-weight: 900; color: #0284c7; margin-bottom: 4px; display: flex; align-items: baseline; gap: 4px;">
-          <span>${props.runoff_rate_m3_s?.toFixed(2) ?? '0.00'}</span>
-          <span style="font-size: 12px; font-weight: 600; color: #64748b;">m³/s</span>
-        </div>
-
-        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px; margin-bottom: 6px; font-size: 11px; display: flex; flex-direction: column; gap: 2px;">
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: #64748b;">Rainfall Intensity (I):</span>
-            <strong style="color: #0f172a;">${props.rainfall_intensity_mm_hr} mm/hr</strong>
+      return `
+        <div style="font-family: Inter, sans-serif; padding: 6px; min-width: 220px;">
+          <div style="border-bottom: 2px solid #06b6d4; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+            <span style="font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #0891b2;">RUNOFF GENERATION</span>
+            ${statusBadge}
           </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: #64748b;">Runoff Depth (R):</span>
-            <strong style="color: #0f172a;">${props.effective_runoff_depth_mm} mm</strong>
+          <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 1px;">${cellState.zone_name || catchment.zone_name}</div>
+          <div style="font-size: 10px; color: #64748b; margin-bottom: 4px; font-family: monospace;">${cellState.cell_id} • Area: ${(catchment.area_m2 / 1e6).toFixed(1)} km²</div>
+
+          <div style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #0284c7; background-color: #f0f9ff; border: 1px solid #bae6fd; padding: 2px 6px; border-radius: 4px; margin-bottom: 6px;">
+            HORIZON: T+${currentHour} (${currentHour === 0 ? 'CURRENT' : `+${currentHour}H`})
           </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: #64748b;">Runoff Coeff (C):</span>
-            <strong style="color: #0f172a;">${props.runoff_coefficient} (f_imp: ${(props.impervious_fraction * 100).toFixed(0)}%)</strong>
+
+          <div style="font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 1px;">Runoff Flow Rate (q_gen)</div>
+          <div style="font-size: 20px; font-weight: 900; color: #0284c7; margin-bottom: 4px; display: flex; align-items: baseline; gap: 4px;">
+            <span>${cellState.runoff_rate_m3_s.toFixed(2)}</span>
+            <span style="font-size: 12px; font-weight: 600; color: #64748b;">m³/s</span>
           </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: #64748b;">Water Balance:</span>
-            <strong style="color: #059669;">${props.water_balance_conserved ? '✓ Conserved' : 'Violation'}</strong>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px; margin-bottom: 6px; font-size: 11px; display: flex; flex-direction: column; gap: 2px;">
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #64748b;">Rainfall Intensity (I):</span>
+              <strong style="color: #0f172a;">${cellState.rainfall_intensity_mm_hr} mm/hr</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #64748b;">Runoff Depth (R):</span>
+              <strong style="color: #0f172a;">${cellState.effective_runoff_depth_mm} mm</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #64748b;">Runoff Coeff (C):</span>
+              <strong style="color: #0f172a;">${catchment.runoff_coefficient} (f_imp: ${(catchment.impervious_fraction * 100).toFixed(0)}%)</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #64748b;">Water Balance:</span>
+              <strong style="color: #059669;">${cellState.water_balance_conserved ? '✓ Conserved' : 'Violation'}</strong>
+            </div>
+          </div>
+
+          <div style="font-size: 9px; color: #94a3b8; line-height: 1.3;">
+            <div><strong style="color: #64748b;">Provenance:</strong> ASSUMED_PROTOTYPE (CPHEEO)</div>
+            <div style="font-style: italic;">Runoff generation input to routing. Not street flood depth.</div>
           </div>
         </div>
-
-        <div style="font-size: 9px; color: #94a3b8; line-height: 1.3;">
-          <div><strong style="color: #64748b;">Provenance:</strong> ASSUMED_PROTOTYPE (CPHEEO)</div>
-          <div style="font-style: italic;">Runoff generation input to routing. Not street flood depth.</div>
-        </div>
-      </div>
-    `;
-
-    layer.bindPopup(popupContent);
+      `;
+    });
 
     layer.on({
       mouseover: (e) => {
@@ -464,7 +496,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         {/* 3. Runoff Generation Layer (Phase 3A: runoffPane, zIndex 480) */}
         {showRunoff && runoffGeoJSON && (
           <GeoJSON
-            key={`runoff-nowcast-hour-${selectedNowcastHour}`}
+            key={`runoff-h${selectedNowcastHour}-${activeRunoffForecast?.status}-${activeRunoffForecast?.generated_at}`}
             data={runoffGeoJSON as any}
             style={getRunoffStyle}
             onEachFeature={onEachRunoffFeature}
