@@ -2,8 +2,8 @@ import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { Shell } from './components/layout/Shell';
 import { Home } from './pages/Home';
+import { Dashboard } from './pages/Dashboard';
 import {
-  DashboardPlaceholder,
   NowcastPlaceholder,
   DrainagePlaceholder,
   AlertsPlaceholder,
@@ -15,7 +15,7 @@ export const App: React.FC = () => {
     <Shell>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/dashboard" element={<DashboardPlaceholder />} />
+        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/nowcast" element={<NowcastPlaceholder />} />
         <Route path="/drainage" element={<DrainagePlaceholder />} />
         <Route path="/alerts" element={<AlertsPlaceholder />} />
