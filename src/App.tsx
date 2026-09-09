@@ -5,9 +5,9 @@ import { Home } from './pages/Home';
 import { Dashboard } from './pages/Dashboard';
 import { DrainageDashboard } from './pages/DrainageDashboard';
 import { NowcastDashboard } from './pages/NowcastDashboard';
+import { RoutingDashboard } from './pages/RoutingDashboard';
 import {
-  AlertsPlaceholder,
-  RoutingPlaceholder
+  AlertsPlaceholder
 } from './pages/Placeholders';
 
 export const App: React.FC = () => {
@@ -19,7 +19,7 @@ export const App: React.FC = () => {
         <Route path="/nowcast" element={<NowcastDashboard />} />
         <Route path="/drainage" element={<DrainageDashboard />} />
         <Route path="/alerts" element={<AlertsPlaceholder />} />
-        <Route path="/routing" element={<RoutingPlaceholder />} />
+        <Route path="/routing" element={<RoutingDashboard />} />
       </Routes>
     </Shell>
   );
