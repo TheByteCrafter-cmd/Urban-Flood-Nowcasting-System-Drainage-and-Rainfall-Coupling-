@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, CloudRain, Mountain, Droplets, Waves, Compass, GitCommit, Check } from 'lucide-react';
+import { Layers, CloudRain, Mountain, Droplets, Waves, Compass, GitCommit, Cpu, Check } from 'lucide-react';
 
 interface LayerControlProps {
   showRainfall: boolean;
@@ -14,6 +14,8 @@ interface LayerControlProps {
   onToggleFlood: (active: boolean) => void;
   showDrainage?: boolean;
   onToggleDrainage?: (active: boolean) => void;
+  showCoupled?: boolean;
+  onToggleCoupled?: (active: boolean) => void;
   className?: string;
 }
 
@@ -30,6 +32,8 @@ export const LayerControl: React.FC<LayerControlProps> = ({
   onToggleFlood,
   showDrainage = false,
   onToggleDrainage,
+  showCoupled = false,
+  onToggleCoupled,
   className = '',
 }) => {
   return (
@@ -216,6 +220,35 @@ export const LayerControl: React.FC<LayerControlProps> = ({
             </div>
             <span className="text-[10px] font-semibold text-emerald-300 bg-emerald-950/80 px-1.5 py-0.5 rounded border border-emerald-700/60">
               PHASE 3C
+            </span>
+          </label>
+        )}
+
+        {/* Coupled 1D-2D Model Layer Toggle (Phase 3D Active) */}
+        {onToggleCoupled && (
+          <label
+            onClick={() => onToggleCoupled(!showCoupled)}
+            className={`flex items-center justify-between p-2 rounded-lg border cursor-pointer transition-colors ${
+              showCoupled
+                ? 'bg-sky-950/80 border-sky-600/80 text-white'
+                : 'bg-slate-800/40 border-slate-700/40 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-4 h-4 rounded flex items-center justify-center transition-colors ${
+                  showCoupled ? 'bg-sky-600 text-white' : 'border border-slate-600 bg-slate-800'
+                }`}
+              >
+                {showCoupled && <Check className="w-3 h-3" />}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Cpu className={`w-3.5 h-3.5 ${showCoupled ? 'text-sky-400' : 'text-slate-400'}`} />
+                <span className="font-medium">Coupled 1D-2D</span>
+              </div>
+            </div>
+            <span className="text-[10px] font-semibold text-sky-300 bg-sky-950/80 px-1.5 py-0.5 rounded border border-sky-700/60">
+              PHASE 3D
             </span>
           </label>
         )}

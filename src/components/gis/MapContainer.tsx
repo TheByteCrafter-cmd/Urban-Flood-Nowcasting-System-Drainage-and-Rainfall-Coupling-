@@ -13,6 +13,7 @@ import { SurfaceFlowLegend } from './SurfaceFlowLegend';
 import { SurfaceFlowSummaryCard } from './SurfaceFlowSummaryCard';
 import { DrainageLegend } from './DrainageLegend';
 import { DrainageSummaryCard } from './DrainageSummaryCard';
+import { CoupledSummaryCard } from './CoupledSummaryCard';
 import { NowcastTimeControl } from './NowcastTimeControl';
 import { MOCK_RAINFALL_GEOJSON, RainfallFeatureProperties } from '../../mock/rainfall';
 import { MOCK_DEM_GEOJSON } from '../../mock/dem';
@@ -22,9 +23,11 @@ import { MOCK_NOWCAST_TIMESTEPS, NowcastHour } from '../../mock/nowcast';
 import { NormalizedWeatherObservation } from '../../types/weather';
 import { RunoffForecast, RunoffDataStatus } from '../../types/runoff';
 import { SurfaceFlowForecast } from '../../types/surfaceFlow';
+import { CoupledForecast } from '../../types/coupling';
 import { generateRunoffForecast } from '../../services/runoffService';
 import { generateSurfaceFlowForecast } from '../../services/surfaceFlowService';
 import { generateDrainageForecast, getPipeUtilizationCategory, getNodeSurchargeStatus } from '../../services/drainageService';
+import { generateCoupledForecast } from '../../services/couplingService';
 import L from 'leaflet';
 
 interface MapContainerProps {
@@ -37,6 +40,7 @@ interface MapContainerProps {
   weather?: NormalizedWeatherObservation | null;
   runoffForecast?: RunoffForecast | null;
   surfaceFlowForecast?: SurfaceFlowForecast | null;
+  coupledForecast?: CoupledForecast | null;
 }
 
 // Sub-component to initialize custom Leaflet panes for z-index layer separation
@@ -71,6 +75,10 @@ const MapPanes: React.FC = () => {
       const nodePane = map.createPane('nodePane');
       nodePane.style.zIndex = '520'; // Drainage node pane (Phase 3C)
     }
+    if (!map.getPane('coupledPane')) {
+      const coupledPane = map.createPane('coupledPane');
+      coupledPane.style.zIndex = '505'; // 1D-2D Coupled flood layer pane (Phase 3D)
+    }
   }, [map]);
   return null;
 };
@@ -83,15 +91,17 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   weather,
   runoffForecast,
   surfaceFlowForecast,
+  coupledForecast,
 }) => {
   const [showRainfall, setShowRainfall] = useState<boolean>(true); // Default ON
   const [showDEM, setShowDEM] = useState<boolean>(true); // Default ON for Phase 2B-2
   const [showRunoff, setShowRunoff] = useState<boolean>(true); // Default ON for Phase 3A
   const [showSurfaceFlow, setShowSurfaceFlow] = useState<boolean>(true); // Default ON for Phase 3B
   const [showDrainage, setShowDrainage] = useState<boolean>(true); // Default ON for Phase 3C
+  const [showCoupled, setShowCoupled] = useState<boolean>(true); // Default ON for Phase 3D
   const [showFlood, setShowFlood] = useState<boolean>(true); // Default ON for Phase 2B-3 Demo
   const [selectedNowcastHour, setSelectedNowcastHour] = useState<NowcastHour>(0); // Default T+0 Current
-  const [activeHudTab, setActiveHudTab] = useState<'flow' | 'runoff' | 'drainage'>('drainage'); // Active HUD tab
+  const [activeHudTab, setActiveHudTab] = useState<'coupled' | 'drainage' | 'flow' | 'runoff'>('coupled'); // Active HUD tab
 
   // Normalize coordinate order: Leaflet requires [lat, lng]
   const mapCenter: [number, number] = center[0] > 50 ? [center[1], center[0]] : center;
@@ -119,6 +129,11 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     if (active) setActiveHudTab('drainage');
   };
 
+  const handleToggleCoupled = (active: boolean) => {
+    setShowCoupled(active);
+    if (active) setActiveHudTab('coupled');
+  };
+
   const handleToggleFlood = (active: boolean) => {
     setShowFlood(active);
   };
@@ -143,12 +158,22 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     return null;
   }, [activeRunoffForecast]);
 
+  // Derive 1D-2D coupled forecast from Phase 3A runoff forecast
+  const activeCoupledForecast = React.useMemo(() => {
+    if (coupledForecast) return coupledForecast;
+    if (activeRunoffForecast) return generateCoupledForecast(activeRunoffForecast);
+    return null;
+  }, [coupledForecast, activeRunoffForecast]);
+
   // Keep live references so that popups always read the exact current forecast & horizon
   const forecastRef = React.useRef(activeRunoffForecast);
   forecastRef.current = activeRunoffForecast;
 
   const flowForecastRef = React.useRef(activeSurfaceFlowForecast);
   flowForecastRef.current = activeSurfaceFlowForecast;
+
+  const coupledForecastRef = React.useRef(activeCoupledForecast);
+  coupledForecastRef.current = activeCoupledForecast;
 
   const hourRef = React.useRef(selectedNowcastHour);
   hourRef.current = selectedNowcastHour;
@@ -196,6 +221,25 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       }),
     };
   }, [activeSurfaceFlowForecast, selectedNowcastHour]);
+
+  // Construct GeoJSON FeatureCollection for the current 1D-2D Coupled horizon
+  const coupledGeoJSON = React.useMemo(() => {
+    if (!activeCoupledForecast) return null;
+    const state = activeCoupledForecast.horizons[selectedNowcastHour];
+    if (!state) return null;
+
+    return {
+      type: 'FeatureCollection',
+      features: state.cells.map((cell) => ({
+        type: 'Feature',
+        id: cell.cell_id,
+        geometry: cell.geometry,
+        properties: {
+          ...cell,
+        },
+      })),
+    };
+  }, [activeCoupledForecast, selectedNowcastHour]);
 
   // DEM Elevation GeoJSON Styling (Subtle & Muted Terrain Palette, fillOpacity 0.30 - Non-interactive terrain context)
   const getDEMStyle = (feature: any): L.PathOptions => {
@@ -561,6 +605,88 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     });
   };
 
+  const getCoupledStyle = (feature: any): L.PathOptions => {
+    const depthCm = feature?.properties?.water_depth_cm ?? 0;
+    let fillColor = '#DBEAFE'; // Low (0-5 cm)
+    if (depthCm >= 100) {
+      fillColor = '#172554'; // Critical (100+ cm)
+    } else if (depthCm >= 50) {
+      fillColor = '#1D4ED8'; // Very High (50-100 cm)
+    } else if (depthCm >= 20) {
+      fillColor = '#3B82F6'; // High (20-50 cm)
+    } else if (depthCm >= 5) {
+      fillColor = '#93C5FD'; // Moderate (5-20 cm)
+    }
+
+    return {
+      fillColor,
+      fillOpacity: 0.65,
+      color: '#0284C7',
+      weight: 1.5,
+      opacity: 0.90,
+    };
+  };
+
+  const onEachCoupledFeature = (feature: any, layer: L.Layer) => {
+    layer.bindPopup(() => {
+      const currentForecast = coupledForecastRef.current;
+      const currentHour = hourRef.current;
+      const state = currentForecast?.horizons[currentHour];
+      const cell = state?.cells.find((c) => c.cell_id === feature.id);
+
+      if (!cell) {
+        return '<div style="padding: 8px; font-family: Inter, sans-serif; font-size: 11px;">No telemetry data available</div>';
+      }
+
+      const statusBadge = getStatusBadgeHtml(cell.status);
+
+      return `
+        <div style="font-family: Inter, sans-serif; padding: 6px; min-width: 250px;">
+          <div style="border-bottom: 2px solid #0284c7; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+            <span style="font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #0369a1;">1D-2D COUPLED MODEL</span>
+            ${statusBadge}
+          </div>
+          <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 1px;">${cell.zone_name}</div>
+          <div style="font-size: 10px; color: #64748b; margin-bottom: 4px; font-family: monospace;">${cell.cell_id} • Elev: ${cell.elevation_m}m</div>
+
+          <div style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #0369a1; background-color: #f0f9ff; border: 1px solid #bae6fd; padding: 2px 6px; border-radius: 4px; margin-bottom: 6px;">
+            HORIZON: T+${currentHour} (${currentHour === 0 ? 'CURRENT' : `+${currentHour}H`})
+          </div>
+
+          <div style="font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 1px;">Coupled Inundation Depth</div>
+          <div style="font-size: 20px; font-weight: 900; color: #0284c7; margin-bottom: 4px; display: flex; align-items: baseline; gap: 4px;">
+            <span>${cell.water_depth_cm.toFixed(1)}</span>
+            <span style="font-size: 12px; font-weight: 600; color: #64748b;">cm</span>
+            <span style="font-size: 10px; font-weight: 700; margin-left: 6px; color: ${cell.color};">(${cell.depth_category})</span>
+          </div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 6px; font-size: 10px; font-family: monospace; margin-bottom: 6px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+            <div>Initial Overland: <strong>${(cell.initial_surface_volume_m3 / 1000).toFixed(1)}k m³</strong></div>
+            <div>Drainage Intake: <strong style="color: #059669;">-${(cell.drainage_intake_volume_m3 / 1000).toFixed(1)}k m³</strong></div>
+            <div>Surcharge Return: <strong style="color: ${cell.drainage_surcharge_return_m3 > 0 ? '#dc2626' : '#64748b'};">+${(cell.drainage_surcharge_return_m3 / 1000).toFixed(1)}k m³</strong></div>
+            <div>Net Stored: <strong>${(cell.net_surface_volume_m3 / 1000).toFixed(1)}k m³</strong></div>
+          </div>
+
+          <div style="font-size: 9px; color: #64748b; display: flex; justify-content: space-between; border-top: 1px solid #f1f5f9; padding-top: 4px;">
+            <span>Classification: <strong>MODEL OUTPUT</strong></span>
+            <span style="color: #0284c7; font-weight: 600;">PHASE 3D</span>
+          </div>
+        </div>
+      `;
+    });
+
+    layer.on({
+      mouseover: (e) => {
+        const l = e.target as L.Path;
+        l.setStyle({ fillOpacity: 0.85, weight: 2.5 });
+      },
+      mouseout: (e) => {
+        const l = e.target as L.Path;
+        l.setStyle({ fillOpacity: 0.65, weight: 1.5 });
+      },
+    });
+  };
+
   return (
     <div className={`relative bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-xs flex flex-col ${className}`}>
       {/* Top Left Context Overlay */}
@@ -613,14 +739,29 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           onToggleFlood={handleToggleFlood}
           showDrainage={showDrainage}
           onToggleDrainage={handleToggleDrainage}
+          showCoupled={showCoupled}
+          onToggleCoupled={handleToggleCoupled}
         />
       </div>
 
       {/* Floating Hydrology Summary Card (Bottom Right) */}
-      {(showSurfaceFlow || showRunoff || showDrainage) && (
+      {(showSurfaceFlow || showRunoff || showDrainage || showCoupled) && (
         <div className="absolute bottom-6 right-3 z-[1000] hidden md:flex flex-col gap-1">
           {/* Tab switcher for active components */}
           <div className="flex items-center gap-1 bg-slate-950/90 p-1 rounded-lg border border-slate-800 self-end text-[10px] shadow-lg">
+            {showCoupled && (
+              <button
+                type="button"
+                onClick={() => setActiveHudTab('coupled')}
+                className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                  activeHudTab === 'coupled'
+                    ? 'bg-sky-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Coupled
+              </button>
+            )}
             {showDrainage && (
               <button
                 type="button"
@@ -662,7 +803,12 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             )}
           </div>
 
-          {activeHudTab === 'drainage' && showDrainage ? (
+          {activeHudTab === 'coupled' && showCoupled ? (
+            <CoupledSummaryCard
+              coupledState={activeCoupledForecast?.horizons[selectedNowcastHour] ?? null}
+              selectedHour={selectedNowcastHour}
+            />
+          ) : activeHudTab === 'drainage' && showDrainage ? (
             <DrainageSummaryCard
               networkState={activeDrainageForecast?.horizons[selectedNowcastHour] ?? null}
               selectedHour={selectedNowcastHour}
@@ -747,6 +893,17 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             style={getSurfaceFlowStyle}
             onEachFeature={onEachSurfaceFlowFeature}
             pane="surfaceFlowPane"
+          />
+        )}
+
+        {/* 4.5. Coupled 1D-2D Flood Layer (Phase 3D: coupledPane, zIndex 495) */}
+        {showCoupled && coupledGeoJSON && (
+          <GeoJSON
+            key={`coupled-h${selectedNowcastHour}-${activeCoupledForecast?.status}-${activeCoupledForecast?.generated_at}`}
+            data={coupledGeoJSON as any}
+            style={getCoupledStyle}
+            onEachFeature={onEachCoupledFeature}
+            pane="coupledPane"
           />
         )}
 
