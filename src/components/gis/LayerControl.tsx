@@ -1,0 +1,95 @@
+import React from 'react';
+import { Layers, CloudRain, Mountain, Droplets, GitCommit, Check } from 'lucide-react';
+
+interface LayerControlProps {
+  showRainfall: boolean;
+  onToggleRainfall: (active: boolean) => void;
+  className?: string;
+}
+
+export const LayerControl: React.FC<LayerControlProps> = ({
+  showRainfall,
+  onToggleRainfall,
+  className = '',
+}) => {
+  return (
+    <div
+      className={`bg-slate-900/90 backdrop-blur-xs text-white p-3 rounded-xl border border-slate-700/80 shadow-lg w-64 space-y-3 ${className}`}
+      aria-label="Map Layer Controller"
+    >
+      <div className="flex items-center gap-2 border-b border-slate-700/80 pb-2">
+        <Layers className="w-4 h-4 text-blue-400 shrink-0" />
+        <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+          GIS Layer Controller
+        </span>
+      </div>
+
+      <div className="space-y-1.5 text-xs">
+        {/* Base Map Toggle (Permanent Base Layer) */}
+        <div className="flex items-center justify-between p-2 rounded-lg bg-slate-800/80 border border-slate-700/60">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded bg-blue-600 flex items-center justify-center text-white">
+              <Check className="w-3 h-3" />
+            </div>
+            <span className="font-medium text-slate-200">Base Map (Esri Light)</span>
+          </div>
+          <span className="text-[10px] text-slate-400">ACTIVE</span>
+        </div>
+
+        {/* Rainfall Layer Toggle */}
+        <label
+          onClick={() => onToggleRainfall(!showRainfall)}
+          className={`flex items-center justify-between p-2 rounded-lg border cursor-pointer transition-colors ${
+            showRainfall
+              ? 'bg-blue-950/80 border-blue-600/80 text-white'
+              : 'bg-slate-800/40 border-slate-700/40 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <div
+              className={`w-4 h-4 rounded flex items-center justify-center transition-colors ${
+                showRainfall ? 'bg-blue-600 text-white' : 'border border-slate-600 bg-slate-800'
+              }`}
+            >
+              {showRainfall && <Check className="w-3 h-3" />}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <CloudRain className={`w-3.5 h-3.5 ${showRainfall ? 'text-blue-400' : 'text-slate-400'}`} />
+              <span className="font-medium">Rainfall Layer</span>
+            </div>
+          </div>
+          <span className="text-[10px] font-semibold text-amber-400 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-800/60">
+            DEMO
+          </span>
+        </label>
+
+        {/* Future Layers (Disabled / Coming Soon) */}
+        <div className="pt-1 space-y-1 opacity-55">
+          <div className="flex items-center justify-between p-1.5 rounded text-slate-400 bg-slate-800/20 cursor-not-allowed">
+            <div className="flex items-center gap-2">
+              <Mountain className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-[11px]">DEM Elevation</span>
+            </div>
+            <span className="text-[9px] uppercase tracking-wider text-slate-500">Phase 2B-2</span>
+          </div>
+
+          <div className="flex items-center justify-between p-1.5 rounded text-slate-400 bg-slate-800/20 cursor-not-allowed">
+            <div className="flex items-center gap-2">
+              <Droplets className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-[11px]">Flood Inundation</span>
+            </div>
+            <span className="text-[9px] uppercase tracking-wider text-slate-500">Phase 2B-3</span>
+          </div>
+
+          <div className="flex items-center justify-between p-1.5 rounded text-slate-400 bg-slate-800/20 cursor-not-allowed">
+            <div className="flex items-center gap-2">
+              <GitCommit className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-[11px]">Drainage Network</span>
+            </div>
+            <span className="text-[9px] uppercase tracking-wider text-slate-500">Phase 4</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

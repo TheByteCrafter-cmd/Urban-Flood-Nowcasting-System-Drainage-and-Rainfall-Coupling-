@@ -3,6 +3,9 @@ import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Loader2, AlertTriangle, RefreshCw, Layers } from 'lucide-react';
 import { DemoBadge } from '../ui/DemoBadge';
+import { LayerControl } from './LayerControl';
+import { RainfallLegend } from './RainfallLegend';
+import { MOCK_RAINFALL_GEOJSON, RainfallFeatureProperties } from '../../mock/rainfall';
 
 interface MapContainerProps {
   cityId?: string;
@@ -13,14 +16,6 @@ interface MapContainerProps {
   className?: string;
 }
 
-/**
- * BASE MAP PROVIDER CONFIGURATION
- * Primary: Esri World Light Gray Base (Raster) with maxzoom: 16 set on the source.
- * Setting maxzoom: 16 tells MapLibre GL JS that native server tiles end at zoom 16.
- * When zooming past level 16 to 17-20 (street/building scale), MapLibre GL JS smoothly
- * overzooms (upscales on GPU canvas) the zoom 16 tiles rather than fetching Esri's z=17
- * "Map data not yet available" placeholder images.
- */
 const ESRI_LIGHT_GRAY_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {
@@ -31,7 +26,7 @@ const ESRI_LIGHT_GRAY_STYLE: maplibregl.StyleSpecification = {
       ],
       tileSize: 256,
       minzoom: 0,
-      maxzoom: 16, // Critical: Prevents MapLibre from requesting missing z=17+ tiles from Esri
+      maxzoom: 16,
       attribution:
         'Tiles &copy; <a href="https://www.esri.com" target="_blank" rel="noopener">Esri</a> &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), TomTom',
     },
@@ -42,50 +37,14 @@ const ESRI_LIGHT_GRAY_STYLE: maplibregl.StyleSpecification = {
       type: 'raster',
       source: 'esri-light-gray',
       minzoom: 0,
-      maxzoom: 20, // Allows rendering up to zoom 20 via GPU overzooming
-    },
-  ],
-};
-
-/**
- * OpenStreetMap Standard Light Fallback Style
- * Native tiles up to zoom level 19 for ultra-detailed street, road & building geometry.
- */
-const OSM_STANDARD_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  sources: {
-    'osm-standard': {
-      type: 'raster',
-      tiles: [
-        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      ],
-      tileSize: 256,
-      minzoom: 0,
-      maxzoom: 19,
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
-    },
-  },
-  layers: [
-    {
-      id: 'osm-standard-layer',
-      type: 'raster',
-      source: 'osm-standard',
-      minzoom: 0,
       maxzoom: 20,
     },
   ],
 };
 
-// Helper to resolve map style: checks VITE_MAP_STYLE env var first, defaults to Esri Light Gray Canvas with overzoom
 const getInitialStyle = (): string | maplibregl.StyleSpecification => {
   const envStyle = import.meta.env.VITE_MAP_STYLE;
   if (envStyle && typeof envStyle === 'string' && envStyle.trim() !== '') {
-    if (envStyle.trim().toLowerCase() === 'osm') {
-      return OSM_STANDARD_STYLE;
-    }
     return envStyle.trim();
   }
   return ESRI_LIGHT_GRAY_STYLE;
@@ -93,18 +52,20 @@ const getInitialStyle = (): string | maplibregl.StyleSpecification => {
 
 export const MapContainer: React.FC<MapContainerProps> = ({
   cityName = 'Mumbai Metropolitan Region',
-  center = [72.8777, 19.0760], // Mumbai Center [lng, lat]
+  center = [72.8777, 19.0760],
   zoom = 11.5,
   onMapLoad,
   className = 'h-full w-full',
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<maplibregl.Map | null>(null);
+  const activePopupRef = useRef<maplibregl.Popup | null>(null);
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [hasError, setHasError] = useState<boolean>(false);
   const [mapReady, setMapReady] = useState<boolean>(false);
   const [currentZoom, setCurrentZoom] = useState<number>(zoom);
+  const [showRainfall, setShowRainfall] = useState<boolean>(true); // Default ON for demo
 
   const initializeMap = () => {
     if (!mapContainerRef.current) return;
@@ -124,28 +85,97 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         center: center,
         zoom: zoom,
         minZoom: 2,
-        maxZoom: 20, // Full zoom range supported (street & building level)
+        maxZoom: 20,
         attributionControl: false,
       });
 
-      // Add Navigation controls (Zoom in/out, pitch/compass)
+      // Add MapLibre Controls
       map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
-
-      // Add Fullscreen control
       map.addControl(new maplibregl.FullscreenControl(), 'top-right');
-
-      // Add Attribution control (Mandatory for provider license compliance)
-      map.addControl(
-        new maplibregl.AttributionControl({
-          compact: true,
-        }),
-        'bottom-right'
-      );
+      map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
       map.on('load', () => {
         setIsLoading(false);
         setMapReady(true);
         setCurrentZoom(Math.round(map.getZoom() * 10) / 10);
+
+        // Add Mock Rainfall Source & Layers
+        if (!map.getSource('rainfall-mock-source')) {
+          map.addSource('rainfall-mock-source', {
+            type: 'geojson',
+            data: MOCK_RAINFALL_GEOJSON,
+          });
+
+          // Semi-transparent Fill Layer (55% opacity for base map readability)
+          map.addLayer({
+            id: 'rainfall-fill-layer',
+            type: 'fill',
+            source: 'rainfall-mock-source',
+            layout: {
+              visibility: 'visible',
+            },
+            paint: {
+              'fill-color': ['get', 'color'],
+              'fill-opacity': 0.55,
+            },
+          });
+
+          // Polygon Boundary Outline Layer
+          map.addLayer({
+            id: 'rainfall-outline-layer',
+            type: 'line',
+            source: 'rainfall-mock-source',
+            layout: {
+              visibility: 'visible',
+            },
+            paint: {
+              'line-color': '#1E293B',
+              'line-width': 1.5,
+              'line-opacity': 0.6,
+            },
+          });
+        }
+
+        // Lightweight Click Inspector for Rainfall Cells
+        map.on('click', 'rainfall-fill-layer', (e) => {
+          if (!e.features || e.features.length === 0) return;
+          const props = e.features[0].properties as RainfallFeatureProperties;
+
+          if (activePopupRef.current) {
+            activePopupRef.current.remove();
+          }
+
+          const popupContent = document.createElement('div');
+          popupContent.className = 'p-2 space-y-1 text-slate-900 font-sans';
+          popupContent.innerHTML = `
+            <div className="flex items-center justify-between gap-2 border-b border-slate-200 pb-1">
+              <span className="font-bold text-xs text-slate-800">${props.zone_name}</span>
+              <span className="text-[9px] font-semibold text-amber-800 bg-amber-100 px-1 py-0.5 rounded">DEMO DATA</span>
+            </div>
+            <div className="text-xs">
+              <span className="text-slate-500">Intensity:</span>
+              <span className="font-bold text-blue-700 ml-1">${props.rainfall_intensity_mm_hr} mm/hr</span>
+            </div>
+            <div className="text-[11px] text-slate-600">
+              <span>Category: </span>
+              <span className="font-semibold" style="color: ${props.color}">${props.category} mm/hr</span>
+            </div>
+          `;
+
+          activePopupRef.current = new maplibregl.Popup({ closeButton: true, closeOnClick: true })
+            .setLngLat(e.lngLat)
+            .setDOMContent(popupContent)
+            .addTo(map);
+        });
+
+        // Change cursor on hover
+        map.on('mouseenter', 'rainfall-fill-layer', () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'rainfall-fill-layer', () => {
+          map.getCanvas().style.cursor = '';
+        });
+
         if (onMapLoad) {
           onMapLoad(map);
         }
@@ -171,10 +201,24 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     }
   };
 
+  // Toggle Rainfall Layer Visibility
+  const handleToggleRainfall = (active: boolean) => {
+    setShowRainfall(active);
+    const map = mapInstanceRef.current;
+    if (map && map.isStyleLoaded() && map.getLayer('rainfall-fill-layer')) {
+      const visibility = active ? 'visible' : 'none';
+      map.setLayoutProperty('rainfall-fill-layer', 'visibility', visibility);
+      map.setLayoutProperty('rainfall-outline-layer', 'visibility', visibility);
+    }
+  };
+
   useEffect(() => {
     initializeMap();
 
     return () => {
+      if (activePopupRef.current) {
+        activePopupRef.current.remove();
+      }
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -184,7 +228,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
 
   return (
     <div className={`relative bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-xs flex flex-col ${className}`}>
-      {/* Top Context Overlay */}
+      {/* Top Left Context Overlay */}
       <div className="absolute top-3 left-3 z-10 bg-slate-900/90 backdrop-blur-xs text-white px-3.5 py-2 rounded-lg border border-slate-700/80 shadow-md flex items-center gap-3">
         <div className="flex items-center gap-2">
           <Layers className="w-4 h-4 text-blue-400 shrink-0" />
@@ -204,11 +248,23 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         </div>
       </div>
 
+      {/* Floating Layer Controller (Top Right below map navigation controls) */}
+      <div className="absolute top-28 right-3 z-10 hidden sm:block">
+        <LayerControl showRainfall={showRainfall} onToggleRainfall={handleToggleRainfall} />
+      </div>
+
+      {/* Floating Rainfall Legend (Bottom Left) */}
+      {showRainfall && (
+        <div className="absolute bottom-6 left-3 z-10">
+          <RainfallLegend />
+        </div>
+      )}
+
       {/* Loading Overlay */}
       {isLoading && (
         <div className="absolute inset-0 z-20 bg-slate-900/40 backdrop-blur-xs flex flex-col items-center justify-center text-white space-y-2">
           <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
-          <p className="text-xs font-medium text-slate-200">Initializing Base Map...</p>
+          <p className="text-xs font-medium text-slate-200">Initializing Base Map & GIS Layers...</p>
         </div>
       )}
 
