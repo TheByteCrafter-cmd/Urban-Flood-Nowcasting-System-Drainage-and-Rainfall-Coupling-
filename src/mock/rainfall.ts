@@ -68,8 +68,8 @@ const generateMumbaiRainfallGrid = (): GeoJSONFeatureCollection => {
 
   const features: GeoJSONPolygonFeature[] = [];
 
-  const insetLng = lngStep * 0.05;
-  const insetLat = latStep * 0.05;
+  const insetLng = lngStep * 0.08;
+  const insetLat = latStep * 0.08;
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
