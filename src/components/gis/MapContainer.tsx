@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { MapContainer as LeafletMap, TileLayer, GeoJSON, useMap } from 'react-leaflet';
+import { MapContainer as LeafletMap, TileLayer, GeoJSON, Polyline, CircleMarker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Layers } from 'lucide-react';
+import { Layers, ArrowRight } from 'lucide-react';
 import { DemoBadge } from '../ui/DemoBadge';
 import { LayerControl } from './LayerControl';
 import { RainfallLegend } from './RainfallLegend';
@@ -11,6 +11,8 @@ import { RunoffLegend } from './RunoffLegend';
 import { RunoffSummaryCard } from './RunoffSummaryCard';
 import { SurfaceFlowLegend } from './SurfaceFlowLegend';
 import { SurfaceFlowSummaryCard } from './SurfaceFlowSummaryCard';
+import { DrainageLegend } from './DrainageLegend';
+import { DrainageSummaryCard } from './DrainageSummaryCard';
 import { NowcastTimeControl } from './NowcastTimeControl';
 import { MOCK_RAINFALL_GEOJSON, RainfallFeatureProperties } from '../../mock/rainfall';
 import { MOCK_DEM_GEOJSON } from '../../mock/dem';
@@ -22,6 +24,7 @@ import { RunoffForecast, RunoffDataStatus } from '../../types/runoff';
 import { SurfaceFlowForecast } from '../../types/surfaceFlow';
 import { generateRunoffForecast } from '../../services/runoffService';
 import { generateSurfaceFlowForecast } from '../../services/surfaceFlowService';
+import { generateDrainageForecast, getPipeUtilizationCategory, getNodeSurchargeStatus } from '../../services/drainageService';
 import L from 'leaflet';
 
 interface MapContainerProps {
@@ -60,6 +63,14 @@ const MapPanes: React.FC = () => {
       const floodPane = map.createPane('floodPane');
       floodPane.style.zIndex = '500'; // Top flood inundation layer pane
     }
+    if (!map.getPane('pipePane')) {
+      const pipePane = map.createPane('pipePane');
+      pipePane.style.zIndex = '510'; // Drainage pipe edge pane (Phase 3C)
+    }
+    if (!map.getPane('nodePane')) {
+      const nodePane = map.createPane('nodePane');
+      nodePane.style.zIndex = '520'; // Drainage node pane (Phase 3C)
+    }
   }, [map]);
   return null;
 };
@@ -77,9 +88,10 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   const [showDEM, setShowDEM] = useState<boolean>(true); // Default ON for Phase 2B-2
   const [showRunoff, setShowRunoff] = useState<boolean>(true); // Default ON for Phase 3A
   const [showSurfaceFlow, setShowSurfaceFlow] = useState<boolean>(true); // Default ON for Phase 3B
+  const [showDrainage, setShowDrainage] = useState<boolean>(true); // Default ON for Phase 3C
   const [showFlood, setShowFlood] = useState<boolean>(true); // Default ON for Phase 2B-3 Demo
   const [selectedNowcastHour, setSelectedNowcastHour] = useState<NowcastHour>(0); // Default T+0 Current
-  const [activeHudTab, setActiveHudTab] = useState<'flow' | 'runoff'>('flow'); // Active HUD tab
+  const [activeHudTab, setActiveHudTab] = useState<'flow' | 'runoff' | 'drainage'>('drainage'); // Active HUD tab
 
   // Normalize coordinate order: Leaflet requires [lat, lng]
   const mapCenter: [number, number] = center[0] > 50 ? [center[1], center[0]] : center;
@@ -102,6 +114,11 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     if (active) setActiveHudTab('flow');
   };
 
+  const handleToggleDrainage = (active: boolean) => {
+    setShowDrainage(active);
+    if (active) setActiveHudTab('drainage');
+  };
+
   const handleToggleFlood = (active: boolean) => {
     setShowFlood(active);
   };
@@ -119,6 +136,12 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     if (activeRunoffForecast) return generateSurfaceFlowForecast(activeRunoffForecast);
     return null;
   }, [surfaceFlowForecast, activeRunoffForecast]);
+
+  // Derive drainage network forecast from Phase 3A runoff forecast
+  const activeDrainageForecast = React.useMemo(() => {
+    if (activeRunoffForecast) return generateDrainageForecast(activeRunoffForecast);
+    return null;
+  }, [activeRunoffForecast]);
 
   // Keep live references so that popups always read the exact current forecast & horizon
   const forecastRef = React.useRef(activeRunoffForecast);
@@ -588,15 +611,30 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           onToggleSurfaceFlow={handleToggleSurfaceFlow}
           showFlood={showFlood}
           onToggleFlood={handleToggleFlood}
+          showDrainage={showDrainage}
+          onToggleDrainage={handleToggleDrainage}
         />
       </div>
 
       {/* Floating Hydrology Summary Card (Bottom Right) */}
-      {(showSurfaceFlow || showRunoff) && (
+      {(showSurfaceFlow || showRunoff || showDrainage) && (
         <div className="absolute bottom-6 right-3 z-[1000] hidden md:flex flex-col gap-1">
-          {/* Tab switcher if both are active */}
-          {showSurfaceFlow && showRunoff && (
-            <div className="flex items-center gap-1 bg-slate-950/90 p-1 rounded-lg border border-slate-800 self-end text-[10px] shadow-lg">
+          {/* Tab switcher for active components */}
+          <div className="flex items-center gap-1 bg-slate-950/90 p-1 rounded-lg border border-slate-800 self-end text-[10px] shadow-lg">
+            {showDrainage && (
+              <button
+                type="button"
+                onClick={() => setActiveHudTab('drainage')}
+                className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                  activeHudTab === 'drainage'
+                    ? 'bg-emerald-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Drainage
+              </button>
+            )}
+            {showSurfaceFlow && (
               <button
                 type="button"
                 onClick={() => setActiveHudTab('flow')}
@@ -606,8 +644,10 @@ export const MapContainer: React.FC<MapContainerProps> = ({
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                2D Surface Flow
+                2D Flow
               </button>
+            )}
+            {showRunoff && (
               <button
                 type="button"
                 onClick={() => setActiveHudTab('runoff')}
@@ -617,12 +657,17 @@ export const MapContainer: React.FC<MapContainerProps> = ({
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Runoff Engine
+                Runoff
               </button>
-            </div>
-          )}
+            )}
+          </div>
 
-          {activeHudTab === 'flow' && showSurfaceFlow ? (
+          {activeHudTab === 'drainage' && showDrainage ? (
+            <DrainageSummaryCard
+              networkState={activeDrainageForecast?.horizons[selectedNowcastHour] ?? null}
+              selectedHour={selectedNowcastHour}
+            />
+          ) : activeHudTab === 'flow' && showSurfaceFlow ? (
             <SurfaceFlowSummaryCard
               flowGrid={activeSurfaceFlowForecast?.horizons[selectedNowcastHour] ?? null}
               selectedHour={selectedNowcastHour}
@@ -642,6 +687,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         {showRainfall && <RainfallLegend />}
         {showRunoff && <RunoffLegend />}
         {showSurfaceFlow && <SurfaceFlowLegend />}
+        {showDrainage && <DrainageLegend />}
         {showFlood && <FloodLegend />}
       </div>
 
@@ -714,6 +760,105 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             pane="floodPane"
           />
         )}
+
+        {/* 6. Drainage Network Pipes (Phase 3C: pipePane, zIndex 510) */}
+        {showDrainage &&
+          activeDrainageForecast?.horizons[selectedNowcastHour]?.edges.map((edge) => {
+            const { color } = getPipeUtilizationCategory(edge.utilization_pct);
+            const positions: [number, number][] = [
+              [edge.coordinates[0][1], edge.coordinates[0][0]],
+              [edge.coordinates[1][1], edge.coordinates[1][0]],
+            ];
+
+            return (
+              <Polyline
+                key={`edge-${edge.id}-${selectedNowcastHour}`}
+                positions={positions}
+                pane="pipePane"
+                pathOptions={{
+                  color,
+                  weight: edge.status === 'OVER_CAPACITY' ? 5 : edge.status === 'HIGH' ? 4 : 3,
+                  opacity: 0.9,
+                  dashArray: edge.status === 'OVER_CAPACITY' ? '6, 6' : undefined,
+                }}
+              >
+                <Popup>
+                  <div className="text-xs p-1 space-y-1 min-w-[220px]">
+                    <div className="flex items-center justify-between border-b pb-1 font-bold">
+                      <span>DRAINAGE PIPE: {edge.id}</span>
+                      <span className="px-1 py-0.5 rounded text-[9px] text-white" style={{ backgroundColor: color }}>
+                        {edge.status.replace('_', ' ')}
+                      </span>
+                    </div>
+                    <div className="font-semibold text-slate-800">{edge.name}</div>
+                    <div className="flex items-center gap-1 text-[10px] text-slate-600 bg-slate-100 p-1 rounded">
+                      <span className="font-mono font-bold text-blue-700">{edge.from_node}</span>
+                      <ArrowRight className="w-3 h-3 text-slate-400" />
+                      <span className="font-mono font-bold text-emerald-700">{edge.to_node}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 text-[10px]">
+                      <div>Flow: <strong>{edge.actual_flow_m3_s} m³/s</strong></div>
+                      <div>Capacity: <strong>{edge.capacity_m3_s} m³/s</strong></div>
+                      <div>Util: <strong style={{ color }}>{edge.utilization_pct}%</strong></div>
+                      <div>Slope: <strong>{(edge.slope * 100).toFixed(2)}%</strong></div>
+                    </div>
+                    <div className="text-[9px] text-slate-400 pt-1 border-t">
+                      Provenance: {edge.provenance}
+                    </div>
+                  </div>
+                </Popup>
+              </Polyline>
+            );
+          })}
+
+        {/* 7. Drainage Network Nodes (Phase 3C: nodePane, zIndex 520) */}
+        {showDrainage &&
+          activeDrainageForecast?.horizons[selectedNowcastHour]?.nodes.map((node) => {
+            const isOutfall = node.node_type === 'OUTFALL';
+            const { color } = getNodeSurchargeStatus(node.surcharge_ratio, isOutfall);
+            const radius = isOutfall ? 7 : node.node_type === 'MANHOLE' ? 5 : 4;
+
+            return (
+              <CircleMarker
+                key={`node-${node.id}-${selectedNowcastHour}`}
+                center={[node.lat, node.lng]}
+                radius={radius}
+                pane="nodePane"
+                pathOptions={{
+                  color: '#0F172A',
+                  fillColor: color,
+                  fillOpacity: 0.95,
+                  weight: 1.5,
+                }}
+              >
+                <Popup>
+                  <div className="text-xs p-1 space-y-1 min-w-[220px]">
+                    <div className="flex items-center justify-between border-b pb-1 font-bold">
+                      <span>{node.node_type}: {node.id}</span>
+                      <span className="px-1 py-0.5 rounded text-[9px] text-white" style={{ backgroundColor: color }}>
+                        {isOutfall ? 'MARINE OUTFALL' : node.status}
+                      </span>
+                    </div>
+                    <div className="font-semibold text-slate-800">{node.name}</div>
+                    <div className="grid grid-cols-2 gap-1 text-[10px]">
+                      <div>Inflow: <strong>{node.total_inflow_m3_s} m³/s</strong></div>
+                      <div>Cap: <strong>{node.node_capacity_m3_s} m³/s</strong></div>
+                      <div>Discharge: <strong>{node.discharged_outflow_m3_s} m³/s</strong></div>
+                      <div>Surcharge: <strong className={node.surcharge_rate_m3_s > 0 ? 'text-red-600' : ''}>{node.surcharge_rate_m3_s} m³/s</strong></div>
+                    </div>
+                    {node.status_reason && (
+                      <div className="text-[9px] text-slate-600 bg-amber-50 p-1 rounded">
+                        {node.status_reason}
+                      </div>
+                    )}
+                    <div className="text-[9px] text-slate-400 pt-1 border-t">
+                      Provenance: {node.provenance}
+                    </div>
+                  </div>
+                </Popup>
+              </CircleMarker>
+            );
+          })}
       </LeafletMap>
     </div>
   );

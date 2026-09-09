@@ -12,6 +12,8 @@ interface LayerControlProps {
   onToggleSurfaceFlow: (active: boolean) => void;
   showFlood: boolean;
   onToggleFlood: (active: boolean) => void;
+  showDrainage?: boolean;
+  onToggleDrainage?: (active: boolean) => void;
   className?: string;
 }
 
@@ -26,6 +28,8 @@ export const LayerControl: React.FC<LayerControlProps> = ({
   onToggleSurfaceFlow,
   showFlood,
   onToggleFlood,
+  showDrainage = false,
+  onToggleDrainage,
   className = '',
 }) => {
   return (
@@ -187,16 +191,34 @@ export const LayerControl: React.FC<LayerControlProps> = ({
           </span>
         </label>
 
-        {/* Future Layers (Disabled / Coming Soon) */}
-        <div className="pt-1 space-y-1 opacity-55">
-          <div className="flex items-center justify-between p-1.5 rounded text-slate-400 bg-slate-800/20 cursor-not-allowed">
+        {/* Drainage Network Layer Toggle (Phase 3C Active) */}
+        {onToggleDrainage && (
+          <label
+            onClick={() => onToggleDrainage(!showDrainage)}
+            className={`flex items-center justify-between p-2 rounded-lg border cursor-pointer transition-colors ${
+              showDrainage
+                ? 'bg-emerald-950/80 border-emerald-600/80 text-white'
+                : 'bg-slate-800/40 border-slate-700/40 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+            }`}
+          >
             <div className="flex items-center gap-2">
-              <GitCommit className="w-3.5 h-3.5 text-slate-500" />
-              <span className="text-[11px]">Drainage Network</span>
+              <div
+                className={`w-4 h-4 rounded flex items-center justify-center transition-colors ${
+                  showDrainage ? 'bg-emerald-600 text-white' : 'border border-slate-600 bg-slate-800'
+                }`}
+              >
+                {showDrainage && <Check className="w-3 h-3" />}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <GitCommit className={`w-3.5 h-3.5 ${showDrainage ? 'text-emerald-400' : 'text-slate-400'}`} />
+                <span className="font-medium">Drainage Network</span>
+              </div>
             </div>
-            <span className="text-[9px] uppercase tracking-wider text-slate-500">Phase 4</span>
-          </div>
-        </div>
+            <span className="text-[10px] font-semibold text-emerald-300 bg-emerald-950/80 px-1.5 py-0.5 rounded border border-emerald-700/60">
+              PHASE 3C
+            </span>
+          </label>
+        )}
       </div>
     </div>
   );
