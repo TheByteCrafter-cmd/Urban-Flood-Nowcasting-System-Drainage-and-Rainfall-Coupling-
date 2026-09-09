@@ -89,7 +89,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         attributionControl: false,
       });
 
-      // Add MapLibre Controls
+      // Add Navigation Controls
       map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
       map.addControl(new maplibregl.FullscreenControl(), 'top-right');
       map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
@@ -99,14 +99,14 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         setMapReady(true);
         setCurrentZoom(Math.round(map.getZoom() * 10) / 10);
 
-        // Register Centralized Mock Rainfall GeoJSON Source
+        // Register Mock Rainfall GeoJSON Source
         if (!map.getSource('rainfall-mock-source')) {
           map.addSource('rainfall-mock-source', {
             type: 'geojson',
             data: MOCK_RAINFALL_GEOJSON,
           });
 
-          // Semi-transparent Fill Layer with MapLibre Step Color Interpolation
+          // High-Visibility Semi-Transparent Polygon Fill Layer (70% opacity)
           map.addLayer({
             id: 'rainfall-fill-layer',
             type: 'fill',
@@ -116,19 +116,16 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             },
             paint: {
               'fill-color': [
-                'step',
-                ['get', 'rainfall_intensity_mm_hr'],
-                '#DBEAFE', // 0-5 mm/hr (Very Low)
-                5, '#93C5FD', // 5-20 mm/hr (Low)
-                20, '#60A5FA', // 20-50 mm/hr (Moderate)
-                50, '#F59E0B', // 50-100 mm/hr (High)
-                100, '#DC2626', // >100 mm/hr (Extreme)
+                'case',
+                ['has', 'color'],
+                ['get', 'color'],
+                '#2563EB',
               ],
-              'fill-opacity': 0.65, // Balanced opacity for high overlay visibility while retaining base map roads
+              'fill-opacity': 0.70, // 70% opacity ensures strong, clear visual overlay
             },
           });
 
-          // Distinct Polygon Boundary Stroke Layer
+          // Crisp Polygon Boundary Line Layer
           map.addLayer({
             id: 'rainfall-outline-layer',
             type: 'line',
@@ -138,13 +135,13 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             },
             paint: {
               'line-color': '#0F172A',
-              'line-width': 1.5,
-              'line-opacity': 0.7,
+              'line-width': 2.0,
+              'line-opacity': 0.85,
             },
           });
         }
 
-        // Lightweight Click Inspector Popup for Rainfall Grid Cells
+        // Click Inspector Popup for Rainfall Sub-Zones
         map.on('click', 'rainfall-fill-layer', (e) => {
           if (!e.features || e.features.length === 0) return;
           const props = e.features[0].properties as RainfallFeatureProperties;
@@ -154,18 +151,19 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           }
 
           const popupContent = document.createElement('div');
-          popupContent.className = 'p-2 space-y-1 text-slate-900 font-sans';
+          popupContent.style.padding = '8px';
+          popupContent.style.fontFamily = 'Inter, sans-serif';
           popupContent.innerHTML = `
-            <div style="border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 4px;">
-              <span style="font-weight: 700; font-size: 12px; color: #0f172a;">${props.zone_name}</span>
-              <span style="font-size: 9px; font-weight: 600; color: #92400e; background-color: #fef3c7; padding: 2px 4px; border-radius: 4px; margin-left: 6px;">DEMO DATA</span>
+            <div style="border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <span style="font-weight: 700; font-size: 13px; color: #0f172a;">${props.zone_name}</span>
+              <span style="font-size: 9px; font-weight: 700; color: #92400e; background-color: #fef3c7; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px;">DEMO DATA</span>
             </div>
-            <div style="font-size: 12px;">
+            <div style="font-size: 12px; margin-bottom: 4px;">
               <span style="color: #64748b;">Rainfall Intensity:</span>
-              <span style="font-weight: 700; color: #1d4ed8; margin-left: 4px;">${props.rainfall_intensity_mm_hr} mm/hr</span>
+              <span style="font-weight: 800; color: #1d4ed8; font-size: 13px; margin-left: 4px;">${props.rainfall_intensity_mm_hr} mm/hr</span>
             </div>
             <div style="font-size: 11px; color: #475569;">
-              <span>Classification: </span>
+              <span>Category: </span>
               <span style="font-weight: 700; color: ${props.color};">${props.category} mm/hr</span>
             </div>
           `;
@@ -176,7 +174,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             .addTo(map);
         });
 
-        // Pointer cursor feedback on hover
+        // Pointer feedback on hover
         map.on('mouseenter', 'rainfall-fill-layer', () => {
           map.getCanvas().style.cursor = 'pointer';
         });
