@@ -7,7 +7,7 @@ import { LayerControl } from './LayerControl';
 import { RainfallLegend } from './RainfallLegend';
 import { DEMLegend } from './DEMLegend';
 import { MOCK_RAINFALL_GEOJSON, RainfallFeatureProperties } from '../../mock/rainfall';
-import { MOCK_DEM_GEOJSON, DEMFeatureProperties } from '../../mock/dem';
+import { MOCK_DEM_GEOJSON } from '../../mock/dem';
 import L from 'leaflet';
 
 interface MapContainerProps {
@@ -55,7 +55,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     setShowDEM(active);
   };
 
-  // DEM Elevation GeoJSON Styling (Subtle & Muted Terrain Palette, fillOpacity 0.30)
+  // DEM Elevation GeoJSON Styling (Subtle & Muted Terrain Palette, fillOpacity 0.30 - Non-interactive terrain context)
   const getDEMStyle = (feature: any): L.PathOptions => {
     const elevation = feature?.properties?.elevation_m ?? 0;
 
@@ -76,43 +76,8 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       color: '#4A3B32',
       weight: 0.5,
       opacity: 0.20,
+      interactive: false,
     };
-  };
-
-  const onEachDEMFeature = (feature: any, layer: L.Layer) => {
-    const props = feature.properties as DEMFeatureProperties;
-    if (!props) return;
-
-    const popupContent = `
-      <div style="font-family: Inter, sans-serif; padding: 4px; min-width: 150px;">
-        <div style="border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-          <span style="font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #166534;">DEM / ELEVATION</span>
-          <span style="font-size: 9px; font-weight: 700; color: #92400e; background-color: #fef3c7; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px;">DEMO DATA</span>
-        </div>
-        <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 4px;">${props.zone_name || 'Mumbai Zone'}</div>
-        <div style="font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase; margin-bottom: 2px;">Elevation</div>
-        <div style="font-size: 18px; font-weight: 800; color: #166534; margin-bottom: 4px;">
-          ${props.elevation_m} m
-        </div>
-        <div style="font-size: 11px; color: #64748b;">
-          <span>Category: </span>
-          <span style="font-weight: 700; color: ${props.color};">${props.category} m</span>
-        </div>
-      </div>
-    `;
-
-    layer.bindPopup(popupContent);
-
-    layer.on({
-      mouseover: (e) => {
-        const l = e.target as L.Path;
-        l.setStyle({ fillOpacity: 0.50, weight: 1.5, opacity: 0.5 });
-      },
-      mouseout: (e) => {
-        const l = e.target as L.Path;
-        l.setStyle({ fillOpacity: 0.30, weight: 0.5, opacity: 0.20 });
-      },
-    });
   };
 
   // Rainfall Intensity GeoJSON Styling (fillOpacity 0.60)
@@ -226,14 +191,14 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        {/* 1. DEM Terrain Elevation Layer (demPane, zIndex 400) */}
+        {/* 1. DEM Terrain Elevation Layer (Visual terrain context only - non-interactive) */}
         {showDEM && (
           <GeoJSON
             key="dem-geojson-layer"
             data={MOCK_DEM_GEOJSON as any}
             style={getDEMStyle}
-            onEachFeature={onEachDEMFeature}
             pane="demPane"
+            interactive={false}
           />
         )}
 
