@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { MapContainer } from '../components/gis/MapContainer';
 import { LiveWeatherStatusBar } from '../components/gis/LiveWeatherStatusBar';
 import { fetchLiveWeatherData, getDemoFallbackWeather } from '../services/weatherService';
+import { generateRunoffForecast } from '../services/runoffService';
 import { NormalizedWeatherObservation, WeatherDataStatus } from '../types/weather';
 
 export const Dashboard: React.FC = () => {
@@ -26,6 +27,10 @@ export const Dashboard: React.FC = () => {
     loadWeatherData();
   }, []);
 
+  const runoffForecast = useMemo(() => {
+    return generateRunoffForecast(weather);
+  }, [weather]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-6.5rem)] min-h-[550px] space-y-2">
       {/* Real-Time Official Meteorological Ingestion Bar (IMD / DWR) */}
@@ -45,6 +50,7 @@ export const Dashboard: React.FC = () => {
           zoom={11.5}
           className="h-full w-full"
           weather={weather}
+          runoffForecast={runoffForecast}
         />
       </div>
     </div>

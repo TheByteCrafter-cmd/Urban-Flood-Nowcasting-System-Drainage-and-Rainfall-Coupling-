@@ -7,12 +7,17 @@ import { LayerControl } from './LayerControl';
 import { RainfallLegend } from './RainfallLegend';
 import { DEMLegend } from './DEMLegend';
 import { FloodLegend } from './FloodLegend';
+import { RunoffLegend } from './RunoffLegend';
+import { RunoffSummaryCard } from './RunoffSummaryCard';
 import { NowcastTimeControl } from './NowcastTimeControl';
 import { MOCK_RAINFALL_GEOJSON, RainfallFeatureProperties } from '../../mock/rainfall';
 import { MOCK_DEM_GEOJSON } from '../../mock/dem';
 import { FloodFeatureProperties } from '../../mock/flood';
+import { PROTOTYPE_CATCHMENTS } from '../../mock/catchments';
 import { MOCK_NOWCAST_TIMESTEPS, NowcastHour } from '../../mock/nowcast';
 import { NormalizedWeatherObservation } from '../../types/weather';
+import { RunoffForecast } from '../../types/runoff';
+import { generateRunoffForecast } from '../../services/runoffService';
 import L from 'leaflet';
 
 interface MapContainerProps {
@@ -23,6 +28,7 @@ interface MapContainerProps {
   onMapLoad?: (map: L.Map) => void;
   className?: string;
   weather?: NormalizedWeatherObservation | null;
+  runoffForecast?: RunoffForecast | null;
 }
 
 // Sub-component to initialize custom Leaflet panes for z-index layer separation
@@ -36,6 +42,10 @@ const MapPanes: React.FC = () => {
     if (!map.getPane('rainfallPane')) {
       const rainfallPane = map.createPane('rainfallPane');
       rainfallPane.style.zIndex = '450'; // Overlay meteorological pane
+    }
+    if (!map.getPane('runoffPane')) {
+      const runoffPane = map.createPane('runoffPane');
+      runoffPane.style.zIndex = '480'; // Surface runoff generation layer pane (Phase 3A)
     }
     if (!map.getPane('floodPane')) {
       const floodPane = map.createPane('floodPane');
@@ -51,9 +61,11 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   zoom = 11.5,
   className = 'h-full w-full',
   weather,
+  runoffForecast,
 }) => {
   const [showRainfall, setShowRainfall] = useState<boolean>(true); // Default ON
   const [showDEM, setShowDEM] = useState<boolean>(true); // Default ON for Phase 2B-2
+  const [showRunoff, setShowRunoff] = useState<boolean>(true); // Default ON for Phase 3A
   const [showFlood, setShowFlood] = useState<boolean>(true); // Default ON for Phase 2B-3 Demo
   const [selectedNowcastHour, setSelectedNowcastHour] = useState<NowcastHour>(0); // Default T+0 Current
 
@@ -68,9 +80,43 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     setShowDEM(active);
   };
 
+  const handleToggleRunoff = (active: boolean) => {
+    setShowRunoff(active);
+  };
+
   const handleToggleFlood = (active: boolean) => {
     setShowFlood(active);
   };
+
+  // Derive runoff forecast from props or fallback to weather
+  const activeRunoffForecast = React.useMemo(() => {
+    if (runoffForecast) return runoffForecast;
+    if (weather) return generateRunoffForecast(weather);
+    return null;
+  }, [runoffForecast, weather]);
+
+  // Construct GeoJSON FeatureCollection for the current nowcast horizon
+  const runoffGeoJSON = React.useMemo(() => {
+    if (!activeRunoffForecast) return null;
+    const grid = activeRunoffForecast.horizons[selectedNowcastHour];
+    if (!grid) return null;
+
+    return {
+      type: 'FeatureCollection',
+      features: PROTOTYPE_CATCHMENTS.map((catchment, idx) => {
+        const cellState = grid.cells[idx];
+        return {
+          type: 'Feature',
+          id: catchment.cell_id,
+          geometry: catchment.geometry,
+          properties: {
+            ...catchment,
+            ...cellState,
+          },
+        };
+      }),
+    };
+  }, [activeRunoffForecast, selectedNowcastHour]);
 
   // DEM Elevation GeoJSON Styling (Subtle & Muted Terrain Palette, fillOpacity 0.30 - Non-interactive terrain context)
   const getDEMStyle = (feature: any): L.PathOptions => {
@@ -222,6 +268,93 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     });
   };
 
+  // Runoff Generation GeoJSON Styling (Phase 3A, fillOpacity 0.55, palette from minimal to extreme)
+  const getRunoffStyle = (feature: any): L.PathOptions => {
+    const rate = feature?.properties?.runoff_rate_m3_s ?? 0;
+
+    let fillColor = '#A5F3FC'; // 0-5 m³/s (Minimal)
+    if (rate > 100) {
+      fillColor = '#312E81'; // 100+ m³/s (Extreme)
+    } else if (rate > 50) {
+      fillColor = '#4338CA'; // 50-100 m³/s (High)
+    } else if (rate > 20) {
+      fillColor = '#2563EB'; // 20-50 m³/s (Substantial)
+    } else if (rate > 5) {
+      fillColor = '#38BDF8'; // 5-20 m³/s (Moderate)
+    }
+
+    return {
+      fillColor,
+      fillOpacity: 0.55,
+      color: '#1E1B4B',
+      weight: 1.5,
+      opacity: 0.85,
+    };
+  };
+
+  const onEachRunoffFeature = (feature: any, layer: L.Layer) => {
+    const props = feature.properties;
+    if (!props) return;
+
+    const popupContent = `
+      <div style="font-family: Inter, sans-serif; padding: 6px; min-width: 220px;">
+        <div style="border-bottom: 2px solid #06b6d4; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <span style="font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #0891b2;">RUNOFF GENERATION</span>
+          <span style="font-size: 9px; font-weight: 700; color: #0e7490; background-color: #ecfeff; border: 1px solid #a5f3fc; padding: 2px 6px; border-radius: 4px;">PHASE 3A</span>
+        </div>
+        <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 1px;">${props.zone_name || 'Hydrological Cell'}</div>
+        <div style="font-size: 10px; color: #64748b; margin-bottom: 4px; font-family: monospace;">${props.cell_id} • Area: ${(props.area_m2 / 1e6).toFixed(1)} km²</div>
+
+        <div style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #0284c7; background-color: #f0f9ff; border: 1px solid #bae6fd; padding: 2px 6px; border-radius: 4px; margin-bottom: 6px;">
+          HORIZON: T+${selectedNowcastHour} (${selectedNowcastHour === 0 ? 'CURRENT' : `+${selectedNowcastHour}H`}) [${props.status || 'DEMO'}]
+        </div>
+
+        <div style="font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 1px;">Runoff Flow Rate (q_gen)</div>
+        <div style="font-size: 20px; font-weight: 900; color: #0284c7; margin-bottom: 4px; display: flex; align-items: baseline; gap: 4px;">
+          <span>${props.runoff_rate_m3_s?.toFixed(2) ?? '0.00'}</span>
+          <span style="font-size: 12px; font-weight: 600; color: #64748b;">m³/s</span>
+        </div>
+
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px; margin-bottom: 6px; font-size: 11px; display: flex; flex-direction: column; gap: 2px;">
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #64748b;">Rainfall Intensity (I):</span>
+            <strong style="color: #0f172a;">${props.rainfall_intensity_mm_hr} mm/hr</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #64748b;">Runoff Depth (R):</span>
+            <strong style="color: #0f172a;">${props.effective_runoff_depth_mm} mm</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #64748b;">Runoff Coeff (C):</span>
+            <strong style="color: #0f172a;">${props.runoff_coefficient} (f_imp: ${(props.impervious_fraction * 100).toFixed(0)}%)</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #64748b;">Water Balance:</span>
+            <strong style="color: #059669;">${props.water_balance_conserved ? '✓ Conserved' : 'Violation'}</strong>
+          </div>
+        </div>
+
+        <div style="font-size: 9px; color: #94a3b8; line-height: 1.3;">
+          <div><strong style="color: #64748b;">Provenance:</strong> ASSUMED_PROTOTYPE (CPHEEO)</div>
+          <div style="font-style: italic;">Runoff generation input to routing. Not street flood depth.</div>
+        </div>
+      </div>
+    `;
+
+    layer.bindPopup(popupContent);
+
+    layer.on({
+      mouseover: (e) => {
+        const l = e.target as L.Path;
+        l.setStyle({ fillOpacity: 0.80, weight: 2.5 });
+      },
+      mouseout: (e) => {
+        const l = e.target as L.Path;
+        l.setStyle({ fillOpacity: 0.55, weight: 1.5 });
+      },
+    });
+  };
+
   return (
     <div className={`relative bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-xs flex flex-col ${className}`}>
       {/* Top Left Context Overlay */}
@@ -250,7 +383,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       </div>
 
       {/* Floating Nowcast Time Control (Top Center) */}
-      {showFlood && (
+      {(showFlood || showRunoff) && (
         <div className="absolute top-16 sm:top-3 left-1/2 -translate-x-1/2 z-[1000] max-w-[95vw]">
           <NowcastTimeControl
             selectedHour={selectedNowcastHour}
@@ -266,15 +399,28 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           onToggleRainfall={handleToggleRainfall}
           showDEM={showDEM}
           onToggleDEM={handleToggleDEM}
+          showRunoff={showRunoff}
+          onToggleRunoff={handleToggleRunoff}
           showFlood={showFlood}
           onToggleFlood={handleToggleFlood}
         />
       </div>
 
+      {/* Floating Runoff Summary Card (Bottom Right) */}
+      {showRunoff && (
+        <div className="absolute bottom-6 right-3 z-[1000] hidden md:block">
+          <RunoffSummaryCard
+            runoffGrid={activeRunoffForecast?.horizons[selectedNowcastHour] ?? null}
+            selectedHour={selectedNowcastHour}
+          />
+        </div>
+      )}
+
       {/* Floating Stacked Legends (Bottom Left) */}
-      <div className="absolute bottom-6 left-3 z-[1000] flex flex-col sm:flex-row gap-2 max-w-[95vw] overflow-x-auto pb-1">
+      <div className="absolute bottom-6 left-3 z-[1000] flex flex-col sm:flex-row gap-2 max-w-[calc(100%-400px)] overflow-x-auto pb-1 pointer-events-auto">
         {showDEM && <DEMLegend />}
         {showRainfall && <RainfallLegend />}
+        {showRunoff && <RunoffLegend />}
         {showFlood && <FloodLegend />}
       </div>
 
@@ -315,7 +461,18 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           />
         )}
 
-        {/* 3. Flood Inundation Layer (floodPane, zIndex 500) */}
+        {/* 3. Runoff Generation Layer (Phase 3A: runoffPane, zIndex 480) */}
+        {showRunoff && runoffGeoJSON && (
+          <GeoJSON
+            key={`runoff-nowcast-hour-${selectedNowcastHour}`}
+            data={runoffGeoJSON as any}
+            style={getRunoffStyle}
+            onEachFeature={onEachRunoffFeature}
+            pane="runoffPane"
+          />
+        )}
+
+        {/* 4. Flood Inundation Layer (floodPane, zIndex 500) */}
         {showFlood && (
           <GeoJSON
             key={`flood-nowcast-hour-${selectedNowcastHour}`}
