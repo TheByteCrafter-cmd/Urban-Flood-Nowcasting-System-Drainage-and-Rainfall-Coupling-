@@ -1,5 +1,3 @@
-import { FeatureCollection, Polygon } from 'geojson';
-
 export interface RainfallFeatureProperties {
   grid_id: string;
   zone_name: string;
@@ -9,220 +7,110 @@ export interface RainfallFeatureProperties {
   is_demo_data: boolean;
 }
 
+export interface GeoJSONPolygonFeature {
+  type: 'Feature';
+  id: string;
+  geometry: {
+    type: 'Polygon';
+    coordinates: number[][][];
+  };
+  properties: RainfallFeatureProperties;
+}
+
+export interface GeoJSONFeatureCollection {
+  type: 'FeatureCollection';
+  features: GeoJSONPolygonFeature[];
+}
+
 /**
- * Centralized Mock GeoJSON Rainfall Intensity Dataset
- * High-visibility contiguous spatial tessellation across Mumbai Metropolitan Region.
- * Explicitly tagged with is_demo_data: true.
+ * Programmatic 5x5 Grid Generator centered over Mumbai Viewport [72.8777, 19.0760]
+ * Bounds: Lng 72.78 to 72.98 (5 columns), Lat 18.92 to 19.22 (5 rows)
+ * Guarantees 25 contiguous spatial cells with varied rainfall intensities (0 to 140 mm/hr).
+ * Zero external package dependencies.
  */
-export const MOCK_RAINFALL_GEOJSON: FeatureCollection<Polygon, RainfallFeatureProperties> = {
-  type: 'FeatureCollection',
-  features: [
-    // 1. South Mumbai (Colaba / Churchgate) - Low Rainfall (14.2 mm/hr - Light Blue)
-    {
-      type: 'Feature',
-      id: 'rf_zone_south_mumbai',
-      geometry: {
-        type: 'Polygon',
-        coordinates: [
-          [
-            [72.8000, 18.9000],
-            [72.8600, 18.9000],
-            [72.8600, 18.9800],
-            [72.8000, 18.9800],
-            [72.8000, 18.9000],
-          ],
-        ],
-      },
-      properties: {
-        grid_id: 'GRID-MH-01',
-        zone_name: 'South Mumbai',
-        rainfall_intensity_mm_hr: 14.2,
-        category: '5-20',
-        color: '#93C5FD', // Light Blue
-        is_demo_data: true,
-      },
-    },
+const generateMumbaiRainfallGrid = (): GeoJSONFeatureCollection => {
+  const minLng = 72.78;
+  const maxLng = 72.98;
+  const minLat = 18.92;
+  const maxLat = 19.22;
 
-    // 2. Worli / Lower Parel - Moderate Rainfall (38.5 mm/hr - Royal Blue)
-    {
-      type: 'Feature',
-      id: 'rf_zone_worli',
-      geometry: {
-        type: 'Polygon',
-        coordinates: [
-          [
-            [72.8100, 18.9800],
-            [72.8600, 18.9800],
-            [72.8600, 19.0150],
-            [72.8100, 19.0150],
-            [72.8100, 18.9800],
-          ],
-        ],
-      },
-      properties: {
-        grid_id: 'GRID-MH-02',
-        zone_name: 'Worli / Lower Parel',
-        rainfall_intensity_mm_hr: 38.5,
-        category: '20-50',
-        color: '#2563EB', // Royal Blue
-        is_demo_data: true,
-      },
-    },
+  const cols = 5;
+  const rows = 5;
 
-    // 3. Dadar / Hindmata - High Rainfall (84.0 mm/hr - Vivid Amber)
-    {
-      type: 'Feature',
-      id: 'rf_zone_dadar',
-      geometry: {
-        type: 'Polygon',
-        coordinates: [
-          [
-            [72.8300, 19.0150],
-            [72.8800, 19.0150],
-            [72.8800, 19.0600],
-            [72.8300, 19.0600],
-            [72.8300, 19.0150],
-          ],
-        ],
-      },
-      properties: {
-        grid_id: 'GRID-MH-03',
-        zone_name: 'Dadar / Hindmata (F-South)',
-        rainfall_intensity_mm_hr: 84.0,
-        category: '50-100',
-        color: '#F59E0B', // Vivid Amber
-        is_demo_data: true,
-      },
-    },
+  const lngStep = (maxLng - minLng) / cols;
+  const latStep = (maxLat - minLat) / rows;
 
-    // 4. Bandra / Santacruz / BKC - Extreme Rainfall (126.0 mm/hr - Deep Crimson Red)
-    {
-      type: 'Feature',
-      id: 'rf_zone_santacruz',
-      geometry: {
-        type: 'Polygon',
-        coordinates: [
-          [
-            [72.8150, 19.0600],
-            [72.8750, 19.0600],
-            [72.8750, 19.1050],
-            [72.8150, 19.1050],
-            [72.8150, 19.0600],
-          ],
-        ],
-      },
-      properties: {
-        grid_id: 'GRID-MH-04',
-        zone_name: 'Bandra / Santacruz / Milan Subway',
-        rainfall_intensity_mm_hr: 126.0,
-        category: '100+',
-        color: '#DC2626', // Deep Crimson Red
-        is_demo_data: true,
-      },
-    },
+  // Preset illustrative rainfall intensities (mm/hr) for the 5x5 grid
+  // Storm cell pattern: Extreme in central Mumbai (Santacruz / Kurla), lower on outskirts
+  const intensityPattern: number[][] = [
+    [5, 12, 18, 10, 4],     // Row 0 (South Mumbai / Colaba)
+    [15, 45, 85, 38, 12],   // Row 1 (Worli / Dadar / Wadala)
+    [25, 95, 135, 110, 42], // Row 2 (Santacruz / BKC / Mithi River - Peak Storm Cell)
+    [18, 70, 90, 65, 20],   // Row 3 (Andheri / Powai)
+    [4, 15, 25, 14, 5],     // Row 4 (Borivali / Thane)
+  ];
 
-    // 5. Kurla / Kalina / Mithi Basin - Extreme Rainfall (118.5 mm/hr - Deep Crimson Red)
-    {
-      type: 'Feature',
-      id: 'rf_zone_kurla',
-      geometry: {
-        type: 'Polygon',
-        coordinates: [
-          [
-            [72.8750, 19.0600],
-            [72.9300, 19.0600],
-            [72.9300, 19.1050],
-            [72.8750, 19.1050],
-            [72.8750, 19.0600],
-          ],
-        ],
-      },
-      properties: {
-        grid_id: 'GRID-MH-05',
-        zone_name: 'Kurla / Mithi Basin (L-Ward)',
-        rainfall_intensity_mm_hr: 118.5,
-        category: '100+',
-        color: '#DC2626', // Deep Crimson Red
-        is_demo_data: true,
-      },
-    },
+  const zoneNames: string[][] = [
+    ['Colaba Coast', 'Churchgate', 'Fort / Marine Drive', 'Navy Nagar', 'Nariman Point'],
+    ['Worli Seaface', 'Lower Parel', 'Dadar / Hindmata', 'Wadala', 'Sion East'],
+    ['Bandra West', 'Santacruz Subway', 'Kurla / BKC', 'Chembur', 'Ghatkopar'],
+    ['Juhu Beach', 'Andheri West', 'MIDC / SEEPZ', 'Powai Lake', 'Vikhroli'],
+    ['Malad West', 'Goregaon', 'Borivali West', 'Thane West', 'Majiwada'],
+  ];
 
-    // 6. Andheri West / Juhu - High Rainfall (74.0 mm/hr - Vivid Amber)
-    {
-      type: 'Feature',
-      id: 'rf_zone_andheri_w',
-      geometry: {
-        type: 'Polygon',
-        coordinates: [
-          [
-            [72.8100, 19.1050],
-            [72.8650, 19.1050],
-            [72.8650, 19.1600],
-            [72.8100, 19.1600],
-            [72.8100, 19.1050],
-          ],
-        ],
-      },
-      properties: {
-        grid_id: 'GRID-MH-06',
-        zone_name: 'Andheri West / Juhu',
-        rainfall_intensity_mm_hr: 74.0,
-        category: '50-100',
-        color: '#F59E0B', // Vivid Amber
-        is_demo_data: true,
-      },
-    },
+  const getColorAndCategory = (intensity: number): { color: string; category: '0-5' | '5-20' | '20-50' | '50-100' | '100+' } => {
+    if (intensity <= 5) return { color: '#DBEAFE', category: '0-5' };       // Very Low (Soft Sky Blue)
+    if (intensity <= 20) return { color: '#93C5FD', category: '5-20' };     // Low (Light Blue)
+    if (intensity <= 50) return { color: '#60A5FA', category: '20-50' };    // Moderate (Royal Blue)
+    if (intensity <= 100) return { color: '#F59E0B', category: '50-100' };  // High (Muted Amber)
+    return { color: '#DC2626', category: '100+' };                          // Extreme (Deep Crimson Red)
+  };
 
-    // 7. Powai / Kanjurmarg - Moderate Rainfall (44.5 mm/hr - Royal Blue)
-    {
-      type: 'Feature',
-      id: 'rf_zone_powai',
-      geometry: {
-        type: 'Polygon',
-        coordinates: [
-          [
-            [72.8650, 19.1050],
-            [72.9400, 19.1050],
-            [72.9400, 19.1600],
-            [72.8650, 19.1600],
-            [72.8650, 19.1050],
-          ],
-        ],
-      },
-      properties: {
-        grid_id: 'GRID-MH-07',
-        zone_name: 'Powai / Kanjurmarg',
-        rainfall_intensity_mm_hr: 44.5,
-        category: '20-50',
-        color: '#2563EB', // Royal Blue
-        is_demo_data: true,
-      },
-    },
+  const features: GeoJSONPolygonFeature[] = [];
 
-    // 8. Borivali / Dahisar - Very Low Rainfall (4.2 mm/hr - Soft Sky Blue)
-    {
-      type: 'Feature',
-      id: 'rf_zone_borivali',
-      geometry: {
-        type: 'Polygon',
-        coordinates: [
-          [
-            [72.8200, 19.1600],
-            [72.9200, 19.1600],
-            [72.9200, 19.2600],
-            [72.8200, 19.2600],
-            [72.8200, 19.1600],
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cellMinLng = minLng + c * lngStep;
+      const cellMaxLng = minLng + (c + 1) * lngStep;
+      const cellMinLat = minLat + r * latStep;
+      const cellMaxLat = minLat + (r + 1) * latStep;
+
+      const intensity = intensityPattern[r][c];
+      const { color, category } = getColorAndCategory(intensity);
+      const name = zoneNames[r][c];
+      const gridId = `GRID-${r}-${c}`;
+
+      features.push({
+        type: 'Feature',
+        id: gridId,
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [cellMinLng, cellMinLat],
+              [cellMaxLng, cellMinLat],
+              [cellMaxLng, cellMaxLat],
+              [cellMinLng, cellMaxLat],
+              [cellMinLng, cellMinLat], // Closed linear ring
+            ],
           ],
-        ],
-      },
-      properties: {
-        grid_id: 'GRID-MH-08',
-        zone_name: 'Borivali / Dahisar',
-        rainfall_intensity_mm_hr: 4.2,
-        category: '0-5',
-        color: '#DBEAFE', // Soft Sky Blue
-        is_demo_data: true,
-      },
-    },
-  ],
+        },
+        properties: {
+          grid_id: gridId,
+          zone_name: name,
+          rainfall_intensity_mm_hr: intensity,
+          category,
+          color,
+          is_demo_data: true,
+        },
+      });
+    }
+  }
+
+  return {
+    type: 'FeatureCollection',
+    features,
+  };
 };
+
+export const MOCK_RAINFALL_GEOJSON: GeoJSONFeatureCollection = generateMumbaiRainfallGrid();

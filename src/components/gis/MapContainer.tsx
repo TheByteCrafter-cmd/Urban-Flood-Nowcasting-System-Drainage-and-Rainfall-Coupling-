@@ -89,7 +89,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         attributionControl: false,
       });
 
-      // Add Navigation Controls
+      // Add MapLibre Controls
       map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
       map.addControl(new maplibregl.FullscreenControl(), 'top-right');
       map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
@@ -99,14 +99,14 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         setMapReady(true);
         setCurrentZoom(Math.round(map.getZoom() * 10) / 10);
 
-        // Register Mock Rainfall GeoJSON Source
+        // Register 5x5 Deterministic Mock Rainfall GeoJSON Source
         if (!map.getSource('rainfall-mock-source')) {
           map.addSource('rainfall-mock-source', {
             type: 'geojson',
             data: MOCK_RAINFALL_GEOJSON,
           });
 
-          // High-Visibility Semi-Transparent Polygon Fill Layer (70% opacity)
+          // Semi-transparent Fill Layer with Data-Driven Step Color Interpolation
           map.addLayer({
             id: 'rainfall-fill-layer',
             type: 'fill',
@@ -116,16 +116,19 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             },
             paint: {
               'fill-color': [
-                'case',
-                ['has', 'color'],
-                ['get', 'color'],
-                '#2563EB',
+                'step',
+                ['get', 'rainfall_intensity_mm_hr'],
+                '#DBEAFE', // 0-5 mm/hr (Very Low: Soft Sky Blue)
+                5, '#93C5FD', // 5-20 mm/hr (Low: Light Blue)
+                20, '#60A5FA', // 20-50 mm/hr (Moderate: Royal Blue)
+                50, '#F59E0B', // 50-100 mm/hr (High: Muted Amber)
+                100, '#DC2626', // >100 mm/hr (Extreme: Deep Crimson Red)
               ],
-              'fill-opacity': 0.70, // 70% opacity ensures strong, clear visual overlay
+              'fill-opacity': 0.65, // Opacity ensures bold spatial color rendering while base map roads remain readable
             },
           });
 
-          // Crisp Polygon Boundary Line Layer
+          // Polygon Grid Outline Layer
           map.addLayer({
             id: 'rainfall-outline-layer',
             type: 'line',
@@ -135,13 +138,13 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             },
             paint: {
               'line-color': '#0F172A',
-              'line-width': 2.0,
-              'line-opacity': 0.85,
+              'line-width': 1.5,
+              'line-opacity': 0.8,
             },
           });
         }
 
-        // Click Inspector Popup for Rainfall Sub-Zones
+        // Lightweight Click Inspector Popup for Rainfall Grid Cells
         map.on('click', 'rainfall-fill-layer', (e) => {
           if (!e.features || e.features.length === 0) return;
           const props = e.features[0].properties as RainfallFeatureProperties;
@@ -174,7 +177,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             .addTo(map);
         });
 
-        // Pointer feedback on hover
+        // Pointer cursor feedback on hover
         map.on('mouseenter', 'rainfall-fill-layer', () => {
           map.getCanvas().style.cursor = 'pointer';
         });
