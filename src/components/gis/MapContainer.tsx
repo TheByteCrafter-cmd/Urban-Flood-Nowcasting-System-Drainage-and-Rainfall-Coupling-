@@ -7,9 +7,11 @@ import { LayerControl } from './LayerControl';
 import { RainfallLegend } from './RainfallLegend';
 import { DEMLegend } from './DEMLegend';
 import { FloodLegend } from './FloodLegend';
+import { NowcastTimeControl } from './NowcastTimeControl';
 import { MOCK_RAINFALL_GEOJSON, RainfallFeatureProperties } from '../../mock/rainfall';
 import { MOCK_DEM_GEOJSON } from '../../mock/dem';
-import { MOCK_FLOOD_GEOJSON, FloodFeatureProperties } from '../../mock/flood';
+import { FloodFeatureProperties } from '../../mock/flood';
+import { MOCK_NOWCAST_TIMESTEPS, NowcastHour } from '../../mock/nowcast';
 import L from 'leaflet';
 
 interface MapContainerProps {
@@ -50,6 +52,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   const [showRainfall, setShowRainfall] = useState<boolean>(true); // Default ON
   const [showDEM, setShowDEM] = useState<boolean>(true); // Default ON for Phase 2B-2
   const [showFlood, setShowFlood] = useState<boolean>(true); // Default ON for Phase 2B-3 Demo
+  const [selectedNowcastHour, setSelectedNowcastHour] = useState<NowcastHour>(0); // Default T+0 Current
 
   // Normalize coordinate order: Leaflet requires [lat, lng]
   const mapCenter: [number, number] = center[0] > 50 ? [center[1], center[0]] : center;
@@ -180,13 +183,16 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     if (!props) return;
 
     const popupContent = `
-      <div style="font-family: Inter, sans-serif; padding: 6px; min-width: 170px;">
+      <div style="font-family: Inter, sans-serif; padding: 6px; min-width: 175px;">
         <div style="border-bottom: 2px solid ${props.color === '#DBEAFE' ? '#3B82F6' : props.color}; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
           <span style="font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: ${props.color === '#DBEAFE' ? '#1E293B' : props.color};">FLOOD INUNDATION</span>
           <span style="font-size: 9px; font-weight: 700; color: #92400e; background-color: #fef3c7; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px;">DEMO DATA</span>
         </div>
         <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 2px;">${props.area_name}</div>
-        ${props.street_name ? `<div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">${props.street_name}</div>` : ''}
+        ${props.street_name ? `<div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">${props.street_name}</div>` : ''}
+        <div style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #1d4ed8; background-color: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; margin-bottom: 6px;">
+          FORECAST: T+${selectedNowcastHour} (${selectedNowcastHour === 0 ? 'CURRENT' : `+${selectedNowcastHour}H`})
+        </div>
         <div style="font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">Water Depth</div>
         <div style="font-size: 22px; font-weight: 900; color: #0f172a; margin-bottom: 6px; display: flex; align-items: baseline; gap: 4px;">
           <span>${props.water_depth_cm}</span>
@@ -232,6 +238,16 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Floating Nowcast Time Control (Top Center) */}
+      {showFlood && (
+        <div className="absolute top-16 sm:top-3 left-1/2 -translate-x-1/2 z-[1000] max-w-[95vw]">
+          <NowcastTimeControl
+            selectedHour={selectedNowcastHour}
+            onSelectHour={setSelectedNowcastHour}
+          />
+        </div>
+      )}
 
       {/* Floating Layer Controller (Top Right) */}
       <div className="absolute top-3 right-3 z-[1000] hidden sm:block">
@@ -292,8 +308,8 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         {/* 3. Flood Inundation Layer (floodPane, zIndex 500) */}
         {showFlood && (
           <GeoJSON
-            key="flood-geojson-layer"
-            data={MOCK_FLOOD_GEOJSON as any}
+            key={`flood-nowcast-hour-${selectedNowcastHour}`}
+            data={MOCK_NOWCAST_TIMESTEPS[selectedNowcastHour].features as any}
             style={getFloodStyle}
             onEachFeature={onEachFloodFeature}
             pane="floodPane"
@@ -303,4 +319,3 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     </div>
   );
 };
-
