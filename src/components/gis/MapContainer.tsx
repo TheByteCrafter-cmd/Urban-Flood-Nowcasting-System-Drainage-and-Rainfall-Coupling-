@@ -5,7 +5,7 @@ import { Loader2, AlertTriangle, RefreshCw, Layers } from 'lucide-react';
 import { DemoBadge } from '../ui/DemoBadge';
 import { LayerControl } from './LayerControl';
 import { RainfallLegend } from './RainfallLegend';
-import { MOCK_RAINFALL_GEOJSON, RainfallFeatureProperties } from '../../mock/rainfall';
+import { MOCK_RAINFALL_GEOJSON } from '../../mock/rainfall';
 
 interface MapContainerProps {
   cityId?: string;
@@ -94,10 +94,58 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       map.addControl(new maplibregl.FullscreenControl(), 'top-right');
       map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
-      map.on('load', () => {
-        setIsLoading(false);
-        setMapReady(true);
-        setCurrentZoom(Math.round(map.getZoom() * 10) / 10);
+      const setupMapLayers = () => {
+        if (!map) return;
+
+        // Register DEBUG Single Polygon Source for Step 4
+        if (!map.getSource('rainfall-debug-source')) {
+          map.addSource('rainfall-debug-source', {
+            type: 'geojson',
+            data: {
+              type: 'FeatureCollection',
+              features: [
+                {
+                  type: 'Feature',
+                  id: 'DEBUG-POLY-1',
+                  geometry: {
+                    type: 'Polygon',
+                    coordinates: [
+                      [
+                        [72.83, 19.03],
+                        [72.92, 19.03],
+                        [72.92, 19.12],
+                        [72.83, 19.12],
+                        [72.83, 19.03],
+                      ],
+                    ],
+                  },
+                  properties: {
+                    grid_id: 'DEBUG-1',
+                    zone_name: 'Central Mumbai Debug Zone',
+                    rainfall_intensity_mm_hr: 120,
+                    category: '100+',
+                    color: '#B91C1C',
+                    is_demo_data: true,
+                  },
+                },
+              ],
+            },
+          });
+
+          // Temporary Debug Layer (Step 4 & 5)
+          map.addLayer({
+            id: 'rainfall-debug-polygon',
+            type: 'fill',
+            source: 'rainfall-debug-source',
+            layout: {
+              visibility: 'visible',
+            },
+            paint: {
+              'fill-color': '#B91C1C',
+              'fill-opacity': 0.65,
+            },
+          });
+        }
 
         // Register 5x5 Deterministic Mock Rainfall GeoJSON Source
         if (!map.getSource('rainfall-mock-source')) {
@@ -117,14 +165,14 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             paint: {
               'fill-color': [
                 'step',
-                ['get', 'rainfall_intensity_mm_hr'],
-                '#DBEAFE', // 0-5 mm/hr (Very Low: Soft Sky Blue)
-                5, '#93C5FD', // 5-20 mm/hr (Low: Light Blue)
-                20, '#60A5FA', // 20-50 mm/hr (Moderate: Royal Blue)
-                50, '#F59E0B', // 50-100 mm/hr (High: Muted Amber)
-                100, '#DC2626', // >100 mm/hr (Extreme: Deep Crimson Red)
+                ['number', ['get', 'rainfall_intensity_mm_hr'], 0],
+                '#DBEAFE', // 0-5 mm/hr
+                5, '#93C5FD', // 5-20 mm/hr
+                20, '#60A5FA', // 20-50 mm/hr
+                50, '#F59E0B', // 50-100 mm/hr
+                100, '#DC2626', // >100 mm/hr
               ],
-              'fill-opacity': 0.65, // Opacity ensures bold spatial color rendering while base map roads remain readable
+              'fill-opacity': 0.65,
             },
           });
 
@@ -144,51 +192,39 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           });
         }
 
-        // Lightweight Click Inspector Popup for Rainfall Grid Cells
-        map.on('click', 'rainfall-fill-layer', (e) => {
-          if (!e.features || e.features.length === 0) return;
-          const props = e.features[0].properties as RainfallFeatureProperties;
+        // Expose Runtime Diagnostics on window for automated inspection
+        (window as any).__MAP_DIAGNOSTICS__ = {
+          hasDebugSource: !!map.getSource('rainfall-debug-source'),
+          hasDebugLayer: !!map.getLayer('rainfall-debug-polygon'),
+          hasRainfallSource: !!map.getSource('rainfall-mock-source'),
+          hasRainfallLayer: !!map.getLayer('rainfall-fill-layer'),
+          center: map.getCenter(),
+          zoom: map.getZoom(),
+          debugLayerType: map.getLayer('rainfall-debug-polygon')?.type,
+          debugPaint: map.getPaintProperty('rainfall-debug-polygon', 'fill-color'),
+          rainfallLayerType: map.getLayer('rainfall-fill-layer')?.type,
+          rainfallPaint: map.getPaintProperty('rainfall-fill-layer', 'fill-color'),
+        };
 
-          if (activePopupRef.current) {
-            activePopupRef.current.remove();
-          }
+        console.log('[GeoNexus GIS] Map Diagnostics:', (window as any).__MAP_DIAGNOSTICS__);
+      };
 
-          const popupContent = document.createElement('div');
-          popupContent.style.padding = '8px';
-          popupContent.style.fontFamily = 'Inter, sans-serif';
-          popupContent.innerHTML = `
-            <div style="border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-              <span style="font-weight: 700; font-size: 13px; color: #0f172a;">${props.zone_name}</span>
-              <span style="font-size: 9px; font-weight: 700; color: #92400e; background-color: #fef3c7; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px;">DEMO DATA</span>
-            </div>
-            <div style="font-size: 12px; margin-bottom: 4px;">
-              <span style="color: #64748b;">Rainfall Intensity:</span>
-              <span style="font-weight: 800; color: #1d4ed8; font-size: 13px; margin-left: 4px;">${props.rainfall_intensity_mm_hr} mm/hr</span>
-            </div>
-            <div style="font-size: 11px; color: #475569;">
-              <span>Category: </span>
-              <span style="font-weight: 700; color: ${props.color};">${props.category} mm/hr</span>
-            </div>
-          `;
-
-          activePopupRef.current = new maplibregl.Popup({ closeButton: true, closeOnClick: true })
-            .setLngLat(e.lngLat)
-            .setDOMContent(popupContent)
-            .addTo(map);
-        });
-
-        // Pointer cursor feedback on hover
-        map.on('mouseenter', 'rainfall-fill-layer', () => {
-          map.getCanvas().style.cursor = 'pointer';
-        });
-        map.on('mouseleave', 'rainfall-fill-layer', () => {
-          map.getCanvas().style.cursor = '';
-        });
+      const handleMapReady = () => {
+        setIsLoading(false);
+        setMapReady(true);
+        setCurrentZoom(Math.round(map.getZoom() * 10) / 10);
+        setupMapLayers();
 
         if (onMapLoad) {
           onMapLoad(map);
         }
-      });
+      };
+
+      if (map.isStyleLoaded()) {
+        handleMapReady();
+      } else {
+        map.on('load', handleMapReady);
+      }
 
       map.on('zoom', () => {
         setCurrentZoom(Math.round(map.getZoom() * 10) / 10);
