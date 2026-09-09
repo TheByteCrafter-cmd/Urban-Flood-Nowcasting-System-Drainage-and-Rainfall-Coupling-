@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, CloudRain, Mountain, Droplets, Waves, GitCommit, Check } from 'lucide-react';
+import { Layers, CloudRain, Mountain, Droplets, Waves, Compass, GitCommit, Check } from 'lucide-react';
 
 interface LayerControlProps {
   showRainfall: boolean;
@@ -8,6 +8,8 @@ interface LayerControlProps {
   onToggleDEM: (active: boolean) => void;
   showRunoff: boolean;
   onToggleRunoff: (active: boolean) => void;
+  showSurfaceFlow: boolean;
+  onToggleSurfaceFlow: (active: boolean) => void;
   showFlood: boolean;
   onToggleFlood: (active: boolean) => void;
   className?: string;
@@ -20,6 +22,8 @@ export const LayerControl: React.FC<LayerControlProps> = ({
   onToggleDEM,
   showRunoff,
   onToggleRunoff,
+  showSurfaceFlow,
+  onToggleSurfaceFlow,
   showFlood,
   onToggleFlood,
   className = '',
@@ -126,6 +130,33 @@ export const LayerControl: React.FC<LayerControlProps> = ({
           </div>
           <span className="text-[10px] font-semibold text-cyan-300 bg-cyan-950/80 px-1.5 py-0.5 rounded border border-cyan-700/60">
             PHASE 3A
+          </span>
+        </label>
+
+        {/* 2D Surface Flow Layer Toggle (Phase 3B Active) */}
+        <label
+          onClick={() => onToggleSurfaceFlow(!showSurfaceFlow)}
+          className={`flex items-center justify-between p-2 rounded-lg border cursor-pointer transition-colors ${
+            showSurfaceFlow
+              ? 'bg-blue-950/80 border-blue-600/80 text-white'
+              : 'bg-slate-800/40 border-slate-700/40 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <div
+              className={`w-4 h-4 rounded flex items-center justify-center transition-colors ${
+                showSurfaceFlow ? 'bg-blue-600 text-white' : 'border border-slate-600 bg-slate-800'
+              }`}
+            >
+              {showSurfaceFlow && <Check className="w-3 h-3" />}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Compass className={`w-3.5 h-3.5 ${showSurfaceFlow ? 'text-blue-400' : 'text-slate-400'}`} />
+              <span className="font-medium">2D Surface Flow</span>
+            </div>
+          </div>
+          <span className="text-[10px] font-semibold text-blue-300 bg-blue-950/80 px-1.5 py-0.5 rounded border border-blue-700/60">
+            PHASE 3B
           </span>
         </label>
 

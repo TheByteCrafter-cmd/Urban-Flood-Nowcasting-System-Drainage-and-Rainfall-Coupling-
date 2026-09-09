@@ -9,6 +9,8 @@ import { DEMLegend } from './DEMLegend';
 import { FloodLegend } from './FloodLegend';
 import { RunoffLegend } from './RunoffLegend';
 import { RunoffSummaryCard } from './RunoffSummaryCard';
+import { SurfaceFlowLegend } from './SurfaceFlowLegend';
+import { SurfaceFlowSummaryCard } from './SurfaceFlowSummaryCard';
 import { NowcastTimeControl } from './NowcastTimeControl';
 import { MOCK_RAINFALL_GEOJSON, RainfallFeatureProperties } from '../../mock/rainfall';
 import { MOCK_DEM_GEOJSON } from '../../mock/dem';
@@ -17,7 +19,9 @@ import { PROTOTYPE_CATCHMENTS } from '../../mock/catchments';
 import { MOCK_NOWCAST_TIMESTEPS, NowcastHour } from '../../mock/nowcast';
 import { NormalizedWeatherObservation } from '../../types/weather';
 import { RunoffForecast, RunoffDataStatus } from '../../types/runoff';
+import { SurfaceFlowForecast } from '../../types/surfaceFlow';
 import { generateRunoffForecast } from '../../services/runoffService';
+import { generateSurfaceFlowForecast } from '../../services/surfaceFlowService';
 import L from 'leaflet';
 
 interface MapContainerProps {
@@ -29,6 +33,7 @@ interface MapContainerProps {
   className?: string;
   weather?: NormalizedWeatherObservation | null;
   runoffForecast?: RunoffForecast | null;
+  surfaceFlowForecast?: SurfaceFlowForecast | null;
 }
 
 // Sub-component to initialize custom Leaflet panes for z-index layer separation
@@ -47,6 +52,10 @@ const MapPanes: React.FC = () => {
       const runoffPane = map.createPane('runoffPane');
       runoffPane.style.zIndex = '480'; // Surface runoff generation layer pane (Phase 3A)
     }
+    if (!map.getPane('surfaceFlowPane')) {
+      const surfaceFlowPane = map.createPane('surfaceFlowPane');
+      surfaceFlowPane.style.zIndex = '490'; // 2D Surface flow routing layer pane (Phase 3B)
+    }
     if (!map.getPane('floodPane')) {
       const floodPane = map.createPane('floodPane');
       floodPane.style.zIndex = '500'; // Top flood inundation layer pane
@@ -62,12 +71,15 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   className = 'h-full w-full',
   weather,
   runoffForecast,
+  surfaceFlowForecast,
 }) => {
   const [showRainfall, setShowRainfall] = useState<boolean>(true); // Default ON
   const [showDEM, setShowDEM] = useState<boolean>(true); // Default ON for Phase 2B-2
   const [showRunoff, setShowRunoff] = useState<boolean>(true); // Default ON for Phase 3A
+  const [showSurfaceFlow, setShowSurfaceFlow] = useState<boolean>(true); // Default ON for Phase 3B
   const [showFlood, setShowFlood] = useState<boolean>(true); // Default ON for Phase 2B-3 Demo
   const [selectedNowcastHour, setSelectedNowcastHour] = useState<NowcastHour>(0); // Default T+0 Current
+  const [activeHudTab, setActiveHudTab] = useState<'flow' | 'runoff'>('flow'); // Active HUD tab
 
   // Normalize coordinate order: Leaflet requires [lat, lng]
   const mapCenter: [number, number] = center[0] > 50 ? [center[1], center[0]] : center;
@@ -82,6 +94,12 @@ export const MapContainer: React.FC<MapContainerProps> = ({
 
   const handleToggleRunoff = (active: boolean) => {
     setShowRunoff(active);
+    if (active) setActiveHudTab('runoff');
+  };
+
+  const handleToggleSurfaceFlow = (active: boolean) => {
+    setShowSurfaceFlow(active);
+    if (active) setActiveHudTab('flow');
   };
 
   const handleToggleFlood = (active: boolean) => {
@@ -95,14 +113,24 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     return null;
   }, [runoffForecast, weather]);
 
+  // Derive 2D surface flow forecast from Phase 3A runoff forecast
+  const activeSurfaceFlowForecast = React.useMemo(() => {
+    if (surfaceFlowForecast) return surfaceFlowForecast;
+    if (activeRunoffForecast) return generateSurfaceFlowForecast(activeRunoffForecast);
+    return null;
+  }, [surfaceFlowForecast, activeRunoffForecast]);
+
   // Keep live references so that popups always read the exact current forecast & horizon
   const forecastRef = React.useRef(activeRunoffForecast);
   forecastRef.current = activeRunoffForecast;
 
+  const flowForecastRef = React.useRef(activeSurfaceFlowForecast);
+  flowForecastRef.current = activeSurfaceFlowForecast;
+
   const hourRef = React.useRef(selectedNowcastHour);
   hourRef.current = selectedNowcastHour;
 
-  // Construct GeoJSON FeatureCollection for the current nowcast horizon
+  // Construct GeoJSON FeatureCollection for the current Runoff nowcast horizon
   const runoffGeoJSON = React.useMemo(() => {
     if (!activeRunoffForecast) return null;
     const grid = activeRunoffForecast.horizons[selectedNowcastHour];
@@ -124,6 +152,27 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       }),
     };
   }, [activeRunoffForecast, selectedNowcastHour]);
+
+  // Construct GeoJSON FeatureCollection for the current 2D Surface Flow horizon
+  const surfaceFlowGeoJSON = React.useMemo(() => {
+    if (!activeSurfaceFlowForecast) return null;
+    const grid = activeSurfaceFlowForecast.horizons[selectedNowcastHour];
+    if (!grid) return null;
+
+    return {
+      type: 'FeatureCollection',
+      features: grid.cells.map((cell) => {
+        return {
+          type: 'Feature',
+          id: cell.cell_id,
+          geometry: cell.geometry,
+          properties: {
+            ...cell,
+          },
+        };
+      }),
+    };
+  }, [activeSurfaceFlowForecast, selectedNowcastHour]);
 
   // DEM Elevation GeoJSON Styling (Subtle & Muted Terrain Palette, fillOpacity 0.30 - Non-interactive terrain context)
   const getDEMStyle = (feature: any): L.PathOptions => {
@@ -387,6 +436,108 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     });
   };
 
+  // 2D Surface Flow GeoJSON Styling (Phase 3B, water depth in cm, palette from light blue to deep navy)
+  const getSurfaceFlowStyle = (feature: any): L.PathOptions => {
+    const depthCm = feature?.properties?.water_depth_cm ?? 0;
+
+    let fillColor = '#DBEAFE'; // Low (0-5 cm)
+    if (depthCm >= 100) {
+      fillColor = '#172554'; // Critical (100+ cm)
+    } else if (depthCm >= 50) {
+      fillColor = '#1D4ED8'; // Very High (50-100 cm)
+    } else if (depthCm >= 20) {
+      fillColor = '#3B82F6'; // High (20-50 cm)
+    } else if (depthCm >= 5) {
+      fillColor = '#93C5FD'; // Moderate (5-20 cm)
+    }
+
+    return {
+      fillColor,
+      fillOpacity: 0.60,
+      color: '#1E3A8A',
+      weight: 1.5,
+      opacity: 0.85,
+    };
+  };
+
+  const onEachSurfaceFlowFeature = (feature: any, layer: L.Layer) => {
+    layer.bindPopup(() => {
+      const currentForecast = flowForecastRef.current;
+      const currentHour = hourRef.current;
+      const grid = currentForecast?.horizons[currentHour];
+      const cellIdx = PROTOTYPE_CATCHMENTS.findIndex((c) => c.cell_id === feature.id);
+      const cellState = grid?.cells[cellIdx];
+      const catchment = PROTOTYPE_CATCHMENTS[cellIdx];
+
+      if (!cellState || !catchment) {
+        return '<div style="padding: 8px; font-family: Inter, sans-serif; font-size: 11px;">No telemetry data available</div>';
+      }
+
+      const statusBadge = getStatusBadgeHtml(cellState.status);
+
+      return `
+        <div style="font-family: Inter, sans-serif; padding: 6px; min-width: 230px;">
+          <div style="border-bottom: 2px solid #2563eb; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+            <span style="font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #1d4ed8;">2D SURFACE FLOW</span>
+            ${statusBadge}
+          </div>
+          <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 1px;">${cellState.zone_name || catchment.zone_name}</div>
+          <div style="font-size: 10px; color: #64748b; margin-bottom: 4px; font-family: monospace;">${cellState.cell_id} • Elev: ${cellState.elevation_m}m • Slope: ${cellState.slope_pct}%</div>
+
+          <div style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #1d4ed8; background-color: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; margin-bottom: 6px;">
+            HORIZON: T+${currentHour} (${currentHour === 0 ? 'CURRENT' : `+${currentHour}H`})
+          </div>
+
+          <div style="font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 1px;">Surface Water Depth</div>
+          <div style="font-size: 20px; font-weight: 900; color: #1d4ed8; margin-bottom: 4px; display: flex; align-items: baseline; gap: 4px;">
+            <span>${cellState.water_depth_cm.toFixed(1)}</span>
+            <span style="font-size: 12px; font-weight: 600; color: #64748b;">cm</span>
+            <span style="font-size: 10px; font-weight: 700; margin-left: 6px; color: ${cellState.color};">(${cellState.depth_category})</span>
+          </div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px; margin-bottom: 6px; font-size: 11px; display: flex; flex-direction: column; gap: 2px;">
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #64748b;">Flow Direction:</span>
+              <strong style="color: #0f172a;">${cellState.flow_direction} (${cellState.downstream_zone_name || 'Sink'})</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #64748b;">Stored Water:</span>
+              <strong style="color: #0f172a;">${Math.round(cellState.retained_surface_volume_m3).toLocaleString('en-IN')} m³</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #64748b;">Upstream Inflow:</span>
+              <strong style="color: #0f172a;">${Math.round(cellState.upstream_inflow_volume_m3).toLocaleString('en-IN')} m³</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #64748b;">Discharged Outflow:</span>
+              <strong style="color: #0f172a;">${Math.round(cellState.transferred_outflow_m3 + cellState.boundary_outflow_m3).toLocaleString('en-IN')} m³</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #64748b;">Mass Balance:</span>
+              <strong style="color: #059669;">${cellState.water_balance_conserved ? '✓ Conserved' : 'Violation'}</strong>
+            </div>
+          </div>
+
+          <div style="font-size: 9px; color: #94a3b8; line-height: 1.3;">
+            <div><strong style="color: #64748b;">Terrain:</strong> ASSUMED_PROTOTYPE DEM (5×5 D8 routing)</div>
+            <div style="font-style: italic;">Prototype 2D surface-flow simulation. Not calibrated municipal flood prediction.</div>
+          </div>
+        </div>
+      `;
+    });
+
+    layer.on({
+      mouseover: (e) => {
+        const l = e.target as L.Path;
+        l.setStyle({ fillOpacity: 0.80, weight: 2.5 });
+      },
+      mouseout: (e) => {
+        const l = e.target as L.Path;
+        l.setStyle({ fillOpacity: 0.60, weight: 1.5 });
+      },
+    });
+  };
+
   return (
     <div className={`relative bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-xs flex flex-col ${className}`}>
       {/* Top Left Context Overlay */}
@@ -415,7 +566,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       </div>
 
       {/* Floating Nowcast Time Control (Top Center) */}
-      {(showFlood || showRunoff) && (
+      {(showFlood || showRunoff || showSurfaceFlow) && (
         <div className="absolute top-16 sm:top-3 left-1/2 -translate-x-1/2 z-[1000] max-w-[95vw]">
           <NowcastTimeControl
             selectedHour={selectedNowcastHour}
@@ -433,18 +584,55 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           onToggleDEM={handleToggleDEM}
           showRunoff={showRunoff}
           onToggleRunoff={handleToggleRunoff}
+          showSurfaceFlow={showSurfaceFlow}
+          onToggleSurfaceFlow={handleToggleSurfaceFlow}
           showFlood={showFlood}
           onToggleFlood={handleToggleFlood}
         />
       </div>
 
-      {/* Floating Runoff Summary Card (Bottom Right) */}
-      {showRunoff && (
-        <div className="absolute bottom-6 right-3 z-[1000] hidden md:block">
-          <RunoffSummaryCard
-            runoffGrid={activeRunoffForecast?.horizons[selectedNowcastHour] ?? null}
-            selectedHour={selectedNowcastHour}
-          />
+      {/* Floating Hydrology Summary Card (Bottom Right) */}
+      {(showSurfaceFlow || showRunoff) && (
+        <div className="absolute bottom-6 right-3 z-[1000] hidden md:flex flex-col gap-1">
+          {/* Tab switcher if both are active */}
+          {showSurfaceFlow && showRunoff && (
+            <div className="flex items-center gap-1 bg-slate-950/90 p-1 rounded-lg border border-slate-800 self-end text-[10px] shadow-lg">
+              <button
+                type="button"
+                onClick={() => setActiveHudTab('flow')}
+                className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                  activeHudTab === 'flow'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                2D Surface Flow
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveHudTab('runoff')}
+                className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                  activeHudTab === 'runoff'
+                    ? 'bg-cyan-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Runoff Engine
+              </button>
+            </div>
+          )}
+
+          {activeHudTab === 'flow' && showSurfaceFlow ? (
+            <SurfaceFlowSummaryCard
+              flowGrid={activeSurfaceFlowForecast?.horizons[selectedNowcastHour] ?? null}
+              selectedHour={selectedNowcastHour}
+            />
+          ) : showRunoff ? (
+            <RunoffSummaryCard
+              runoffGrid={activeRunoffForecast?.horizons[selectedNowcastHour] ?? null}
+              selectedHour={selectedNowcastHour}
+            />
+          ) : null}
         </div>
       )}
 
@@ -453,6 +641,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         {showDEM && <DEMLegend />}
         {showRainfall && <RainfallLegend />}
         {showRunoff && <RunoffLegend />}
+        {showSurfaceFlow && <SurfaceFlowLegend />}
         {showFlood && <FloodLegend />}
       </div>
 
@@ -504,7 +693,18 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           />
         )}
 
-        {/* 4. Flood Inundation Layer (floodPane, zIndex 500) */}
+        {/* 4. 2D Surface Flow Routing Layer (Phase 3B: surfaceFlowPane, zIndex 490) */}
+        {showSurfaceFlow && surfaceFlowGeoJSON && (
+          <GeoJSON
+            key={`flow-h${selectedNowcastHour}-${activeSurfaceFlowForecast?.status}-${activeSurfaceFlowForecast?.generated_at}`}
+            data={surfaceFlowGeoJSON as any}
+            style={getSurfaceFlowStyle}
+            onEachFeature={onEachSurfaceFlowFeature}
+            pane="surfaceFlowPane"
+          />
+        )}
+
+        {/* 5. Flood Inundation Layer (floodPane, zIndex 500) */}
         {showFlood && (
           <GeoJSON
             key={`flood-nowcast-hour-${selectedNowcastHour}`}
