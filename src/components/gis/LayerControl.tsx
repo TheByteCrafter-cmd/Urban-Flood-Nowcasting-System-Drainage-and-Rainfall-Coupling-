@@ -6,6 +6,8 @@ interface LayerControlProps {
   onToggleRainfall: (active: boolean) => void;
   showDEM: boolean;
   onToggleDEM: (active: boolean) => void;
+  showFlood: boolean;
+  onToggleFlood: (active: boolean) => void;
   className?: string;
 }
 
@@ -14,6 +16,8 @@ export const LayerControl: React.FC<LayerControlProps> = ({
   onToggleRainfall,
   showDEM,
   onToggleDEM,
+  showFlood,
+  onToggleFlood,
   className = '',
 }) => {
   return (
@@ -94,16 +98,35 @@ export const LayerControl: React.FC<LayerControlProps> = ({
           </span>
         </label>
 
+        {/* Flood Inundation Layer Toggle (Phase 2B-3 Active) */}
+        <label
+          onClick={() => onToggleFlood(!showFlood)}
+          className={`flex items-center justify-between p-2 rounded-lg border cursor-pointer transition-colors ${
+            showFlood
+              ? 'bg-cyan-950/80 border-cyan-600/80 text-white'
+              : 'bg-slate-800/40 border-slate-700/40 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <div
+              className={`w-4 h-4 rounded flex items-center justify-center transition-colors ${
+                showFlood ? 'bg-cyan-600 text-white' : 'border border-slate-600 bg-slate-800'
+              }`}
+            >
+              {showFlood && <Check className="w-3 h-3" />}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Droplets className={`w-3.5 h-3.5 ${showFlood ? 'text-cyan-400' : 'text-slate-400'}`} />
+              <span className="font-medium">Flood Inundation</span>
+            </div>
+          </div>
+          <span className="text-[10px] font-semibold text-amber-400 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-800/60">
+            DEMO
+          </span>
+        </label>
+
         {/* Future Layers (Disabled / Coming Soon) */}
         <div className="pt-1 space-y-1 opacity-55">
-          <div className="flex items-center justify-between p-1.5 rounded text-slate-400 bg-slate-800/20 cursor-not-allowed">
-            <div className="flex items-center gap-2">
-              <Droplets className="w-3.5 h-3.5 text-slate-500" />
-              <span className="text-[11px]">Flood Inundation</span>
-            </div>
-            <span className="text-[9px] uppercase tracking-wider text-slate-500">Phase 2B-3</span>
-          </div>
-
           <div className="flex items-center justify-between p-1.5 rounded text-slate-400 bg-slate-800/20 cursor-not-allowed">
             <div className="flex items-center gap-2">
               <GitCommit className="w-3.5 h-3.5 text-slate-500" />

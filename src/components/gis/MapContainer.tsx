@@ -6,8 +6,10 @@ import { DemoBadge } from '../ui/DemoBadge';
 import { LayerControl } from './LayerControl';
 import { RainfallLegend } from './RainfallLegend';
 import { DEMLegend } from './DEMLegend';
+import { FloodLegend } from './FloodLegend';
 import { MOCK_RAINFALL_GEOJSON, RainfallFeatureProperties } from '../../mock/rainfall';
 import { MOCK_DEM_GEOJSON } from '../../mock/dem';
+import { MOCK_FLOOD_GEOJSON, FloodFeatureProperties } from '../../mock/flood';
 import L from 'leaflet';
 
 interface MapContainerProps {
@@ -31,6 +33,10 @@ const MapPanes: React.FC = () => {
       const rainfallPane = map.createPane('rainfallPane');
       rainfallPane.style.zIndex = '450'; // Overlay meteorological pane
     }
+    if (!map.getPane('floodPane')) {
+      const floodPane = map.createPane('floodPane');
+      floodPane.style.zIndex = '500'; // Top flood inundation layer pane
+    }
   }, [map]);
   return null;
 };
@@ -43,6 +49,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
 }) => {
   const [showRainfall, setShowRainfall] = useState<boolean>(true); // Default ON
   const [showDEM, setShowDEM] = useState<boolean>(true); // Default ON for Phase 2B-2
+  const [showFlood, setShowFlood] = useState<boolean>(true); // Default ON for Phase 2B-3 Demo
 
   // Normalize coordinate order: Leaflet requires [lat, lng]
   const mapCenter: [number, number] = center[0] > 50 ? [center[1], center[0]] : center;
@@ -53,6 +60,10 @@ export const MapContainer: React.FC<MapContainerProps> = ({
 
   const handleToggleDEM = (active: boolean) => {
     setShowDEM(active);
+  };
+
+  const handleToggleFlood = (active: boolean) => {
+    setShowFlood(active);
   };
 
   // DEM Elevation GeoJSON Styling (Subtle & Muted Terrain Palette, fillOpacity 0.30 - Non-interactive terrain context)
@@ -140,6 +151,68 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     });
   };
 
+  // Flood Inundation GeoJSON Styling (fillOpacity 0.55, depth-based semantic palette)
+  const getFloodStyle = (feature: any): L.PathOptions => {
+    const depth = feature?.properties?.water_depth_cm ?? 0;
+
+    let fillColor = '#DBEAFE'; // 0-5 cm (Low)
+    if (depth > 100) {
+      fillColor = '#B91C1C'; // 100+ cm (Critical)
+    } else if (depth > 50) {
+      fillColor = '#EA580C'; // 50-100 cm (Very High)
+    } else if (depth > 20) {
+      fillColor = '#F59E0B'; // 20-50 cm (High)
+    } else if (depth > 5) {
+      fillColor = '#93C5FD'; // 5-20 cm (Moderate)
+    }
+
+    return {
+      fillColor,
+      fillOpacity: 0.55,
+      color: '#1E293B',
+      weight: 1.5,
+      opacity: 0.8,
+    };
+  };
+
+  const onEachFloodFeature = (feature: any, layer: L.Layer) => {
+    const props = feature.properties as FloodFeatureProperties;
+    if (!props) return;
+
+    const popupContent = `
+      <div style="font-family: Inter, sans-serif; padding: 6px; min-width: 170px;">
+        <div style="border-bottom: 2px solid ${props.color === '#DBEAFE' ? '#3B82F6' : props.color}; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <span style="font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: ${props.color === '#DBEAFE' ? '#1E293B' : props.color};">FLOOD INUNDATION</span>
+          <span style="font-size: 9px; font-weight: 700; color: #92400e; background-color: #fef3c7; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px;">DEMO DATA</span>
+        </div>
+        <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 2px;">${props.area_name}</div>
+        ${props.street_name ? `<div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">${props.street_name}</div>` : ''}
+        <div style="font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">Water Depth</div>
+        <div style="font-size: 22px; font-weight: 900; color: #0f172a; margin-bottom: 6px; display: flex; align-items: baseline; gap: 4px;">
+          <span>${props.water_depth_cm}</span>
+          <span style="font-size: 13px; font-weight: 600; color: #64748b;">cm</span>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px; background-color: #f8fafc; padding: 4px 8px; border-radius: 6px; border: 1px solid #e2e8f0;">
+          <span style="color: #64748b; font-weight: 600;">Risk Level:</span>
+          <span style="font-weight: 800; color: ${props.color === '#DBEAFE' ? '#1E3A8A' : props.color};">${props.risk_level}</span>
+        </div>
+      </div>
+    `;
+
+    layer.bindPopup(popupContent);
+
+    layer.on({
+      mouseover: (e) => {
+        const l = e.target as L.Path;
+        l.setStyle({ fillOpacity: 0.75, weight: 2.5 });
+      },
+      mouseout: (e) => {
+        const l = e.target as L.Path;
+        l.setStyle({ fillOpacity: 0.55, weight: 1.5 });
+      },
+    });
+  };
+
   return (
     <div className={`relative bg-slate-100 rounded-xl overflow-hidden border border-slate-200 shadow-xs flex flex-col ${className}`}>
       {/* Top Left Context Overlay */}
@@ -167,13 +240,16 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           onToggleRainfall={handleToggleRainfall}
           showDEM={showDEM}
           onToggleDEM={handleToggleDEM}
+          showFlood={showFlood}
+          onToggleFlood={handleToggleFlood}
         />
       </div>
 
       {/* Floating Stacked Legends (Bottom Left) */}
-      <div className="absolute bottom-6 left-3 z-[1000] flex flex-col sm:flex-row gap-2">
+      <div className="absolute bottom-6 left-3 z-[1000] flex flex-col sm:flex-row gap-2 max-w-[95vw] overflow-x-auto pb-1">
         {showDEM && <DEMLegend />}
         {showRainfall && <RainfallLegend />}
+        {showFlood && <FloodLegend />}
       </div>
 
       {/* Leaflet Map Canvas */}
@@ -210,6 +286,17 @@ export const MapContainer: React.FC<MapContainerProps> = ({
             style={getRainfallStyle}
             onEachFeature={onEachRainfallFeature}
             pane="rainfallPane"
+          />
+        )}
+
+        {/* 3. Flood Inundation Layer (floodPane, zIndex 500) */}
+        {showFlood && (
+          <GeoJSON
+            key="flood-geojson-layer"
+            data={MOCK_FLOOD_GEOJSON as any}
+            style={getFloodStyle}
+            onEachFeature={onEachFloodFeature}
+            pane="floodPane"
           />
         )}
       </LeafletMap>
