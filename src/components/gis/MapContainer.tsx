@@ -12,6 +12,7 @@ import { MOCK_RAINFALL_GEOJSON, RainfallFeatureProperties } from '../../mock/rai
 import { MOCK_DEM_GEOJSON } from '../../mock/dem';
 import { FloodFeatureProperties } from '../../mock/flood';
 import { MOCK_NOWCAST_TIMESTEPS, NowcastHour } from '../../mock/nowcast';
+import { NormalizedWeatherObservation } from '../../types/weather';
 import L from 'leaflet';
 
 interface MapContainerProps {
@@ -21,6 +22,7 @@ interface MapContainerProps {
   zoom?: number;
   onMapLoad?: (map: L.Map) => void;
   className?: string;
+  weather?: NormalizedWeatherObservation | null;
 }
 
 // Sub-component to initialize custom Leaflet panes for z-index layer separation
@@ -48,6 +50,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   center = [19.0760, 72.8777],
   zoom = 11.5,
   className = 'h-full w-full',
+  weather,
 }) => {
   const [showRainfall, setShowRainfall] = useState<boolean>(true); // Default ON
   const [showDEM, setShowDEM] = useState<boolean>(true); // Default ON for Phase 2B-2
@@ -232,7 +235,14 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         </div>
         <div className="h-6 w-px bg-slate-700 mx-1 hidden sm:block" />
         <div className="hidden sm:flex items-center gap-2">
-          <DemoBadge compact />
+          {weather?.status === 'LIVE' ? (
+            <span className="text-[11px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              IMD LIVE FEED
+            </span>
+          ) : (
+            <DemoBadge compact />
+          )}
           <span className="text-[11px] font-medium text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded">
             LEAFLET GIS READY
           </span>
