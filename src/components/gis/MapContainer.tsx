@@ -13,7 +13,14 @@ interface MapContainerProps {
   className?: string;
 }
 
-// Clean, neutral Esri World Light Gray Canvas Style (100% public, zero watermarks, no API key required)
+/**
+ * BASE MAP PROVIDER CONFIGURATION
+ * Primary: Esri World Light Gray Base (Raster) with maxzoom: 16 set on the source.
+ * Setting maxzoom: 16 tells MapLibre GL JS that native server tiles end at zoom 16.
+ * When zooming past level 16 to 17-20 (street/building scale), MapLibre GL JS smoothly
+ * overzooms (upscales on GPU canvas) the zoom 16 tiles rather than fetching Esri's z=17
+ * "Map data not yet available" placeholder images.
+ */
 const ESRI_LIGHT_GRAY_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {
@@ -23,6 +30,8 @@ const ESRI_LIGHT_GRAY_STYLE: maplibregl.StyleSpecification = {
         'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
       ],
       tileSize: 256,
+      minzoom: 0,
+      maxzoom: 16, // Critical: Prevents MapLibre from requesting missing z=17+ tiles from Esri
       attribution:
         'Tiles &copy; <a href="https://www.esri.com" target="_blank" rel="noopener">Esri</a> &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), TomTom',
     },
@@ -33,15 +42,50 @@ const ESRI_LIGHT_GRAY_STYLE: maplibregl.StyleSpecification = {
       type: 'raster',
       source: 'esri-light-gray',
       minzoom: 0,
-      maxzoom: 19,
+      maxzoom: 20, // Allows rendering up to zoom 20 via GPU overzooming
     },
   ],
 };
 
-// Helper to resolve map style: checks VITE_MAP_STYLE env var first, defaults to Esri Light Gray Canvas
+/**
+ * OpenStreetMap Standard Light Fallback Style
+ * Native tiles up to zoom level 19 for ultra-detailed street, road & building geometry.
+ */
+const OSM_STANDARD_STYLE: maplibregl.StyleSpecification = {
+  version: 8,
+  sources: {
+    'osm-standard': {
+      type: 'raster',
+      tiles: [
+        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      ],
+      tileSize: 256,
+      minzoom: 0,
+      maxzoom: 19,
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+    },
+  },
+  layers: [
+    {
+      id: 'osm-standard-layer',
+      type: 'raster',
+      source: 'osm-standard',
+      minzoom: 0,
+      maxzoom: 20,
+    },
+  ],
+};
+
+// Helper to resolve map style: checks VITE_MAP_STYLE env var first, defaults to Esri Light Gray Canvas with overzoom
 const getInitialStyle = (): string | maplibregl.StyleSpecification => {
   const envStyle = import.meta.env.VITE_MAP_STYLE;
   if (envStyle && typeof envStyle === 'string' && envStyle.trim() !== '') {
+    if (envStyle.trim().toLowerCase() === 'osm') {
+      return OSM_STANDARD_STYLE;
+    }
     return envStyle.trim();
   }
   return ESRI_LIGHT_GRAY_STYLE;
@@ -60,6 +104,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [hasError, setHasError] = useState<boolean>(false);
   const [mapReady, setMapReady] = useState<boolean>(false);
+  const [currentZoom, setCurrentZoom] = useState<number>(zoom);
 
   const initializeMap = () => {
     if (!mapContainerRef.current) return;
@@ -78,6 +123,8 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         style: getInitialStyle(),
         center: center,
         zoom: zoom,
+        minZoom: 2,
+        maxZoom: 20, // Full zoom range supported (street & building level)
         attributionControl: false,
       });
 
@@ -98,9 +145,14 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       map.on('load', () => {
         setIsLoading(false);
         setMapReady(true);
+        setCurrentZoom(Math.round(map.getZoom() * 10) / 10);
         if (onMapLoad) {
           onMapLoad(map);
         }
+      });
+
+      map.on('zoom', () => {
+        setCurrentZoom(Math.round(map.getZoom() * 10) / 10);
       });
 
       map.on('error', (e: maplibregl.ErrorEvent) => {
@@ -146,7 +198,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           <DemoBadge compact />
           {mapReady && (
             <span className="text-[11px] font-medium text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded">
-              BASE MAP READY
+              BASE MAP READY (z{currentZoom})
             </span>
           )}
         </div>
