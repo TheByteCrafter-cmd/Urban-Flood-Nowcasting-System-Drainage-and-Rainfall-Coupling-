@@ -5,7 +5,9 @@ import { Layers } from 'lucide-react';
 import { DemoBadge } from '../ui/DemoBadge';
 import { LayerControl } from './LayerControl';
 import { RainfallLegend } from './RainfallLegend';
+import { DEMLegend } from './DEMLegend';
 import { MOCK_RAINFALL_GEOJSON, RainfallFeatureProperties } from '../../mock/rainfall';
+import { MOCK_DEM_GEOJSON, DEMFeatureProperties } from '../../mock/dem';
 import L from 'leaflet';
 
 interface MapContainerProps {
@@ -23,7 +25,8 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   zoom = 11.5,
   className = 'h-full w-full',
 }) => {
-  const [showRainfall, setShowRainfall] = useState<boolean>(true); // Default ON for demo
+  const [showRainfall, setShowRainfall] = useState<boolean>(true); // Default ON
+  const [showDEM, setShowDEM] = useState<boolean>(true); // Default ON for Phase 2B-2
 
   // Normalize coordinate order: Leaflet requires [lat, lng]
   const mapCenter: [number, number] = center[0] > 50 ? [center[1], center[0]] : center;
@@ -32,6 +35,70 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     setShowRainfall(active);
   };
 
+  const handleToggleDEM = (active: boolean) => {
+    setShowDEM(active);
+  };
+
+  // DEM Elevation GeoJSON Styling (Subtle & Muted Terrain Palette, fillOpacity 0.45)
+  const getDEMStyle = (feature: any): L.PathOptions => {
+    const elevation = feature?.properties?.elevation_m ?? 0;
+
+    let fillColor = '#15803D'; // 0-10 m (Lowland / Darker Green)
+    if (elevation > 75) {
+      fillColor = '#78350F'; // 75+ m (Dark Timber Brown)
+    } else if (elevation > 50) {
+      fillColor = '#B45309'; // 50-75 m (Muted Terracotta)
+    } else if (elevation > 25) {
+      fillColor = '#D97706'; // 25-50 m (Muted Amber)
+    } else if (elevation > 10) {
+      fillColor = '#65A30D'; // 10-25 m (Olive Green)
+    }
+
+    return {
+      fillColor,
+      fillOpacity: 0.45,
+      color: '#FFFFFF',
+      weight: 1,
+      opacity: 0.5,
+    };
+  };
+
+  const onEachDEMFeature = (feature: any, layer: L.Layer) => {
+    const props = feature.properties as DEMFeatureProperties;
+    if (!props) return;
+
+    const popupContent = `
+      <div style="font-family: Inter, sans-serif; padding: 4px; min-width: 140px;">
+        <div style="border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <span style="font-weight: 700; font-size: 13px; color: #0f172a;">${props.zone_name || 'Mumbai Zone'}</span>
+          <span style="font-size: 9px; font-weight: 700; color: #92400e; background-color: #fef3c7; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px;">DEMO DATA</span>
+        </div>
+        <div style="font-size: 12px; margin-bottom: 4px;">
+          <span style="color: #64748b;">Terrain Elevation:</span>
+          <span style="font-weight: 800; color: #15803d; font-size: 13px; margin-left: 4px;">${props.elevation_m} m</span>
+        </div>
+        <div style="font-size: 11px; color: #475569;">
+          <span>Category: </span>
+          <span style="font-weight: 700; color: ${props.color};">${props.category} m</span>
+        </div>
+      </div>
+    `;
+
+    layer.bindPopup(popupContent);
+
+    layer.on({
+      mouseover: (e) => {
+        const l = e.target as L.Path;
+        l.setStyle({ fillOpacity: 0.70, weight: 2 });
+      },
+      mouseout: (e) => {
+        const l = e.target as L.Path;
+        l.setStyle({ fillOpacity: 0.45, weight: 1 });
+      },
+    });
+  };
+
+  // Rainfall Intensity GeoJSON Styling (fillOpacity 0.60)
   const getRainfallStyle = (feature: any): L.PathOptions => {
     const intensity = feature?.properties?.rainfall_intensity_mm_hr ?? 0;
 
@@ -112,17 +179,21 @@ export const MapContainer: React.FC<MapContainerProps> = ({
 
       {/* Floating Layer Controller (Top Right) */}
       <div className="absolute top-3 right-3 z-[1000] hidden sm:block">
-        <LayerControl showRainfall={showRainfall} onToggleRainfall={handleToggleRainfall} />
+        <LayerControl
+          showRainfall={showRainfall}
+          onToggleRainfall={handleToggleRainfall}
+          showDEM={showDEM}
+          onToggleDEM={handleToggleDEM}
+        />
       </div>
 
-      {/* Floating Rainfall Legend (Bottom Left) */}
-      {showRainfall && (
-        <div className="absolute bottom-6 left-3 z-[1000]">
-          <RainfallLegend />
-        </div>
-      )}
+      {/* Floating Stacked Legends (Bottom Left) */}
+      <div className="absolute bottom-6 left-3 z-[1000] flex flex-col sm:flex-row gap-2">
+        {showDEM && <DEMLegend />}
+        {showRainfall && <RainfallLegend />}
+      </div>
 
-      {/* Leaflet Map Container */}
+      {/* Leaflet Map Canvas */}
       <LeafletMap
         center={mapCenter}
         zoom={zoom}
@@ -135,6 +206,17 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
+        {/* 1. DEM Terrain Elevation Layer (Layer Order: Base Map -> DEM -> Rainfall) */}
+        {showDEM && (
+          <GeoJSON
+            key="dem-geojson-layer"
+            data={MOCK_DEM_GEOJSON as any}
+            style={getDEMStyle}
+            onEachFeature={onEachDEMFeature}
+          />
+        )}
+
+        {/* 2. Rainfall Intensity Layer (Sits on top of DEM layer) */}
         {showRainfall && (
           <GeoJSON
             key="rainfall-geojson-layer"
