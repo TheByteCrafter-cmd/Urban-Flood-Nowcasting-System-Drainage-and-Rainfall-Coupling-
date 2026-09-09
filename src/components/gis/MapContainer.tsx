@@ -5,7 +5,7 @@ import { Loader2, AlertTriangle, RefreshCw, Layers } from 'lucide-react';
 import { DemoBadge } from '../ui/DemoBadge';
 import { LayerControl } from './LayerControl';
 import { RainfallLegend } from './RainfallLegend';
-import { MOCK_RAINFALL_GEOJSON } from '../../mock/rainfall';
+
 
 interface MapContainerProps {
   cityId?: string;
@@ -87,102 +87,153 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         minZoom: 2,
         maxZoom: 20,
         attributionControl: false,
-      });
+        preserveDrawingBuffer: true,
+      } as any);
+
+      // Global reference to active map instance
+      (window as any)._activeMap = map;
+      (window as any)._mapInstanceCount = ((window as any)._mapInstanceCount || 0) + 1;
 
       // Add MapLibre Controls
       map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
       map.addControl(new maplibregl.FullscreenControl(), 'top-right');
       map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
-      const setupMapLayers = () => {
-        if (!map) return;
+      const generateViewportGrid = () => {
+        if (!map) return null;
+        const bounds = map.getBounds();
+        const west = bounds.getWest();
+        const south = bounds.getSouth();
+        const east = bounds.getEast();
+        const north = bounds.getNorth();
 
-        // Register DEBUG Single Polygon Source for Step 4
-        if (!map.getSource('rainfall-debug-source')) {
-          map.addSource('rainfall-debug-source', {
-            type: 'geojson',
-            data: {
-              type: 'FeatureCollection',
-              features: [
-                {
-                  type: 'Feature',
-                  id: 'DEBUG-POLY-1',
-                  geometry: {
-                    type: 'Polygon',
-                    coordinates: [
-                      [
-                        [72.83, 19.03],
-                        [72.92, 19.03],
-                        [72.92, 19.12],
-                        [72.83, 19.12],
-                        [72.83, 19.03],
-                      ],
-                    ],
-                  },
-                  properties: {
-                    grid_id: 'DEBUG-1',
-                    zone_name: 'Central Mumbai Debug Zone',
-                    rainfall_intensity_mm_hr: 120,
-                    category: '100+',
-                    color: '#B91C1C',
-                    is_demo_data: true,
-                  },
-                },
-              ],
-            },
-          });
+        const width = east - west;
+        const height = north - south;
 
-          // Temporary Debug Layer (Step 4 & 5)
-          map.addLayer({
-            id: 'rainfall-debug-polygon',
-            type: 'fill',
-            source: 'rainfall-debug-source',
-            layout: {
-              visibility: 'visible',
-            },
-            paint: {
-              'fill-color': '#B91C1C',
-              'fill-opacity': 0.65,
-            },
-          });
+        // Occupy ~65% of current visible map bounds centered in viewport
+        const minLng = west + width * 0.175;
+        const maxLng = west + width * 0.825;
+        const minLat = south + height * 0.175;
+        const maxLat = south + height * 0.825;
+
+        const cols = 5;
+        const rows = 5;
+        const lngStep = (maxLng - minLng) / cols;
+        const latStep = (maxLat - minLat) / rows;
+
+        // Realistic Storm Cell Intensity Distribution (mm/hr)
+        const intensityPattern: number[][] = [
+          [5, 15, 35, 15, 5],
+          [15, 35, 70, 35, 15],
+          [35, 70, 120, 70, 35],
+          [15, 35, 70, 35, 15],
+          [5, 15, 35, 15, 5],
+        ];
+
+        const zoneNames: string[][] = [
+          ['Colaba Coast', 'Churchgate', 'Fort / Marine Drive', 'Navy Nagar', 'Nariman Point'],
+          ['Worli Seaface', 'Lower Parel', 'Dadar / Hindmata', 'Wadala', 'Sion East'],
+          ['Bandra West', 'Santacruz Subway', 'Kurla / BKC', 'Chembur', 'Ghatkopar'],
+          ['Juhu Beach', 'Andheri West', 'MIDC / SEEPZ', 'Powai Lake', 'Vikhroli'],
+          ['Malad West', 'Goregaon', 'Borivali West', 'Thane West', 'Majiwada'],
+        ];
+
+        const features: any[] = [];
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const cellMinLng = minLng + c * lngStep;
+            const cellMaxLng = minLng + (c + 1) * lngStep;
+            const cellMinLat = minLat + r * latStep;
+            const cellMaxLat = minLat + (r + 1) * latStep;
+
+            const intensity = intensityPattern[r][c];
+            const name = zoneNames[r][c];
+
+            features.push({
+              type: 'Feature',
+              id: `DEMO-GRID-${r}-${c}`,
+              geometry: {
+                type: 'Polygon',
+                coordinates: [
+                  [
+                    [cellMinLng, cellMinLat],
+                    [cellMaxLng, cellMinLat],
+                    [cellMaxLng, cellMaxLat],
+                    [cellMinLng, cellMaxLat],
+                    [cellMinLng, cellMinLat],
+                  ],
+                ],
+              },
+              properties: {
+                rainfall_intensity_mm_hr: intensity,
+                zone_name: name,
+                grid_id: `GRID-${r}-${c}`,
+                is_demo_data: true,
+              },
+            });
+          }
         }
 
-        // Register 5x5 Deterministic Mock Rainfall GeoJSON Source
-        if (!map.getSource('rainfall-mock-source')) {
-          map.addSource('rainfall-mock-source', {
-            type: 'geojson',
-            data: MOCK_RAINFALL_GEOJSON,
-          });
+        return {
+          type: 'FeatureCollection' as const,
+          features,
+        };
+      };
 
-          // Semi-transparent Fill Layer with Data-Driven Step Color Interpolation
+      const ensureRainfallLayer = () => {
+        if (!map || mapInstanceRef.current !== map || !map.isStyleLoaded()) return;
+
+        const sourceId = 'rainfall-demo-source';
+        const fillLayerId = 'rainfall-demo-fill';
+        const outlineLayerId = 'rainfall-demo-outline';
+
+        // 1. Generate local GeoJSON grid dynamically from current map bounds
+        const rainfallGeoJSON = generateViewportGrid();
+        if (!rainfallGeoJSON) return;
+
+        // 2. Add or update source
+        if (!map.getSource(sourceId)) {
+          map.addSource(sourceId, {
+            type: 'geojson',
+            data: rainfallGeoJSON,
+          });
+        } else {
+          (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(rainfallGeoJSON);
+        }
+
+        // 3. Add Fill Layer with data-driven step color interpolation
+        if (!map.getLayer(fillLayerId)) {
           map.addLayer({
-            id: 'rainfall-fill-layer',
+            id: fillLayerId,
             type: 'fill',
-            source: 'rainfall-mock-source',
+            source: sourceId,
             layout: {
-              visibility: 'visible',
+              visibility: showRainfall ? 'visible' : 'none',
             },
             paint: {
               'fill-color': [
                 'step',
                 ['number', ['get', 'rainfall_intensity_mm_hr'], 0],
-                '#DBEAFE', // 0-5 mm/hr
-                5, '#93C5FD', // 5-20 mm/hr
-                20, '#60A5FA', // 20-50 mm/hr
-                50, '#F59E0B', // 50-100 mm/hr
-                100, '#DC2626', // >100 mm/hr
+                '#DBEAFE', // 0-5 mm/hr (Light Sky Blue)
+                5, '#93C5FD', // 5-20 mm/hr (Soft Blue)
+                20, '#60A5FA', // 20-50 mm/hr (Royal Blue)
+                50, '#F59E0B', // 50-100 mm/hr (Amber)
+                100, '#B91C1C', // 100+ mm/hr (Deep Red)
               ],
-              'fill-opacity': 0.65,
+              'fill-opacity': 0.60,
+              'fill-outline-color': '#FFFFFF',
             },
           });
+        }
 
-          // Polygon Grid Outline Layer
+        // 4. Add Polygon Outline Layer
+        if (!map.getLayer(outlineLayerId)) {
           map.addLayer({
-            id: 'rainfall-outline-layer',
+            id: outlineLayerId,
             type: 'line',
-            source: 'rainfall-mock-source',
+            source: sourceId,
             layout: {
-              visibility: 'visible',
+              visibility: showRainfall ? 'visible' : 'none',
             },
             paint: {
               'line-color': '#0F172A',
@@ -192,28 +243,76 @@ export const MapContainer: React.FC<MapContainerProps> = ({
           });
         }
 
-        // Expose Runtime Diagnostics on window for automated inspection
-        (window as any).__MAP_DIAGNOSTICS__ = {
-          hasDebugSource: !!map.getSource('rainfall-debug-source'),
-          hasDebugLayer: !!map.getLayer('rainfall-debug-polygon'),
-          hasRainfallSource: !!map.getSource('rainfall-mock-source'),
-          hasRainfallLayer: !!map.getLayer('rainfall-fill-layer'),
-          center: map.getCenter(),
-          zoom: map.getZoom(),
-          debugLayerType: map.getLayer('rainfall-debug-polygon')?.type,
-          debugPaint: map.getPaintProperty('rainfall-debug-polygon', 'fill-color'),
-          rainfallLayerType: map.getLayer('rainfall-fill-layer')?.type,
-          rainfallPaint: map.getPaintProperty('rainfall-fill-layer', 'fill-color'),
-        };
+        // 5. Ensure layer ordering above basemap
+        if (map.getLayer(fillLayerId)) {
+          map.moveLayer(fillLayerId);
+        }
+        if (map.getLayer(outlineLayerId)) {
+          map.moveLayer(outlineLayerId);
+        }
 
-        console.log('[GeoNexus GIS] Map Diagnostics:', (window as any).__MAP_DIAGNOSTICS__);
+        map.resize();
+        map.triggerRepaint();
+
+        // Interactive Popup Inspector
+        map.off('click', fillLayerId, () => {});
+        map.on('click', fillLayerId, (e) => {
+          if (!e.features || e.features.length === 0) return;
+          const props = e.features[0].properties as any;
+
+          if (activePopupRef.current) {
+            activePopupRef.current.remove();
+          }
+
+          const popupContent = document.createElement('div');
+          popupContent.style.padding = '8px';
+          popupContent.style.fontFamily = 'Inter, sans-serif';
+          popupContent.innerHTML = `
+            <div style="border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <span style="font-weight: 700; font-size: 13px; color: #0f172a;">${props.zone_name || 'Mumbai Zone'}</span>
+              <span style="font-size: 9px; font-weight: 700; color: #92400e; background-color: #fef3c7; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px;">DEMO DATA</span>
+            </div>
+            <div style="font-size: 12px; margin-bottom: 4px;">
+              <span style="color: #64748b;">Rainfall Intensity:</span>
+              <span style="font-weight: 800; color: #1d4ed8; font-size: 13px; margin-left: 4px;">${props.rainfall_intensity_mm_hr} mm/hr</span>
+            </div>
+          `;
+
+          activePopupRef.current = new maplibregl.Popup({ closeButton: true, closeOnClick: true })
+            .setLngLat(e.lngLat)
+            .setDOMContent(popupContent)
+            .addTo(map);
+        });
+
+        map.on('mouseenter', fillLayerId, () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', fillLayerId, () => {
+          map.getCanvas().style.cursor = '';
+        });
+
+        // Store runtime verification snapshot
+        map.once('idle', () => {
+          if (mapInstanceRef.current !== map) return;
+
+          const renderedFeatures = map.queryRenderedFeatures({ layers: [fillLayerId] });
+          (window as any).__RAINFALL_RUNTIME_VERIFICATION__ = {
+            sourceExists: !!map.getSource(sourceId),
+            layerExists: !!map.getLayer(fillLayerId),
+            visibility: map.getLayoutProperty(fillLayerId, 'visibility'),
+            renderedCount: renderedFeatures.length,
+            bounds: map.getBounds().toArray(),
+          };
+          console.log('[GeoNexus Rainfall Runtime State]:', (window as any).__RAINFALL_RUNTIME_VERIFICATION__);
+        });
       };
 
       const handleMapReady = () => {
+        if (mapInstanceRef.current !== map) return;
         setIsLoading(false);
         setMapReady(true);
         setCurrentZoom(Math.round(map.getZoom() * 10) / 10);
-        setupMapLayers();
+        ensureRainfallLayer();
 
         if (onMapLoad) {
           onMapLoad(map);
@@ -224,6 +323,11 @@ export const MapContainer: React.FC<MapContainerProps> = ({
         handleMapReady();
       } else {
         map.on('load', handleMapReady);
+        map.on('styledata', () => {
+          if (map.isStyleLoaded() && !map.getLayer('rainfall-demo-fill')) {
+            ensureRainfallLayer();
+          }
+        });
       }
 
       map.on('zoom', () => {
@@ -250,10 +354,14 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   const handleToggleRainfall = (active: boolean) => {
     setShowRainfall(active);
     const map = mapInstanceRef.current;
-    if (map && map.isStyleLoaded() && map.getLayer('rainfall-fill-layer')) {
+    if (map && map.isStyleLoaded()) {
       const visibility = active ? 'visible' : 'none';
-      map.setLayoutProperty('rainfall-fill-layer', 'visibility', visibility);
-      map.setLayoutProperty('rainfall-outline-layer', 'visibility', visibility);
+      if (map.getLayer('rainfall-demo-fill')) {
+        map.setLayoutProperty('rainfall-demo-fill', 'visibility', visibility);
+      }
+      if (map.getLayer('rainfall-demo-outline')) {
+        map.setLayoutProperty('rainfall-demo-outline', 'visibility', visibility);
+      }
     }
   };
 
