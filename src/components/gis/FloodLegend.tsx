@@ -10,9 +10,13 @@ export const FLOOD_COLOR_RAMP = [
 
 interface FloodLegendProps {
   className?: string;
+  badgeText?: string;
 }
 
-export const FloodLegend: React.FC<FloodLegendProps> = ({ className = '' }) => {
+export const FloodLegend: React.FC<FloodLegendProps> = ({
+  className = '',
+  badgeText = 'MODEL OUTPUT / DERIVED',
+}) => {
   return (
     <div
       className={`bg-slate-900/90 backdrop-blur-xs text-white p-3 rounded-xl border border-slate-700/80 shadow-lg w-56 space-y-2 shrink-0 ${className}`}
@@ -25,8 +29,8 @@ export const FloodLegend: React.FC<FloodLegendProps> = ({ className = '' }) => {
           </h3>
           <p className="text-[10px] text-slate-400">Unit: cm (Inundation Output)</p>
         </div>
-        <span className="text-[9px] font-semibold text-amber-400 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-800/60">
-          DEMO
+        <span className="text-[8px] font-extrabold text-sky-300 bg-sky-950/80 px-1.5 py-0.5 rounded border border-sky-800/60 uppercase tracking-tight">
+          {badgeText}
         </span>
       </div>
 

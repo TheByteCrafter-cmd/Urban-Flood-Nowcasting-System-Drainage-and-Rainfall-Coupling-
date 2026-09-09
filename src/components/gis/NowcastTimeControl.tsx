@@ -6,14 +6,27 @@ interface NowcastTimeControlProps {
   selectedHour: NowcastHour;
   onSelectHour: (hour: NowcastHour) => void;
   className?: string;
+  dynamicSummary?: {
+    max_depth_cm: number;
+    risk_level: string;
+    affected_zones_count: number;
+    rainfall_mm_hr?: number;
+    is_live?: boolean;
+    provenance?: string;
+  };
 }
 
 export const NowcastTimeControl: React.FC<NowcastTimeControlProps> = ({
   selectedHour,
   onSelectHour,
   className = '',
+  dynamicSummary,
 }) => {
   const currentStep = MOCK_NOWCAST_TIMESTEPS[selectedHour];
+  const maxDepthCm = dynamicSummary ? dynamicSummary.max_depth_cm : currentStep.summary.max_depth_cm;
+  const riskLevel = dynamicSummary ? dynamicSummary.risk_level : currentStep.summary.risk_level;
+  const affectedZones = dynamicSummary ? dynamicSummary.affected_zones_count : currentStep.summary.affected_zones_count;
+  const isLive = dynamicSummary?.is_live ?? false;
   const steps: NowcastHour[] = [0, 1, 2, 3];
 
   const getAccessibleLabel = (hour: NowcastHour) => {
@@ -63,7 +76,7 @@ export const NowcastTimeControl: React.FC<NowcastTimeControlProps> = ({
       role="region"
       aria-label="Nowcast Time Control"
     >
-      {/* Header bar: Title and Demo Badges */}
+      {/* Header bar: Title and Badges */}
       <div className="flex items-center justify-between gap-2 text-xs">
         <div className="flex items-center gap-1.5">
           <Clock className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
@@ -72,11 +85,17 @@ export const NowcastTimeControl: React.FC<NowcastTimeControlProps> = ({
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-[9px] font-bold text-amber-300 bg-amber-950/70 border border-amber-500/50 px-1.5 py-0.5 rounded">
-            DEMO FORECAST
+          <span
+            className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+              isLive
+                ? 'text-emerald-300 bg-emerald-950/80 border-emerald-500/50'
+                : 'text-amber-300 bg-amber-950/70 border-amber-500/50'
+            }`}
+          >
+            {isLive ? 'LIVE DERIVED' : 'DEMO FORECAST'}
           </span>
           <span className="text-[9px] font-semibold text-slate-300 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
-            DEMO DATA
+            {dynamicSummary?.provenance ? dynamicSummary.provenance : isLive ? 'MODEL OUTPUT' : 'DEMO DATA'}
           </span>
         </div>
       </div>
@@ -128,19 +147,19 @@ export const NowcastTimeControl: React.FC<NowcastTimeControlProps> = ({
           </span>
           <span className="text-slate-500">•</span>
           <span className="text-cyan-300 font-bold text-[11px]">
-            Max {currentStep.summary.max_depth_cm} cm
+            Max {typeof maxDepthCm === 'number' ? maxDepthCm.toFixed(1) : maxDepthCm} cm
           </span>
         </div>
         <div className="flex items-center gap-1.5">
           <span
             className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${getRiskBadgeColor(
-              currentStep.summary.risk_level
+              riskLevel
             )}`}
           >
-            {currentStep.summary.risk_level} Risk
+            {riskLevel} Risk
           </span>
           <span className="text-slate-400 text-[10px]">
-            ({currentStep.summary.affected_zones_count} Zones)
+            ({affectedZones} Zones)
           </span>
         </div>
       </div>
