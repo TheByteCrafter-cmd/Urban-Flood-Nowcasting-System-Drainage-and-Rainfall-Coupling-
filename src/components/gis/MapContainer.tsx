@@ -109,6 +109,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   const [showFlood, setShowFlood] = useState<boolean>(true); // Default ON for Phase 2B-3 Demo
   const [selectedNowcastHour, setSelectedNowcastHour] = useState<NowcastHour>(0); // Default T+0 Current
   const [activeHudTab, setActiveHudTab] = useState<'coupled' | 'drainage' | 'flow' | 'runoff'>('coupled'); // Active HUD tab
+  const [legendsExpanded, setLegendsExpanded] = useState<boolean>(true); // Collapsible legends state
 
   // Normalize coordinate order: Leaflet requires [lat, lng]
   const mapCenter: [number, number] = center[0] > 50 ? [center[1], center[0]] : center;
@@ -953,15 +954,30 @@ export const MapContainer: React.FC<MapContainerProps> = ({
       )}
 
       {/* Floating Stacked Legends (Bottom Left) */}
-      <div className="absolute bottom-6 left-3 z-[1000] flex flex-col sm:flex-row gap-2 max-w-[calc(100%-400px)] overflow-x-auto pb-1 pointer-events-auto">
-        {showDEM && <DEMLegend />}
-        {showRainfall && <RainfallLegend />}
-        {showRunoff && <RunoffLegend />}
-        {showSurfaceFlow && <SurfaceFlowLegend />}
-        {showDrainage && <DrainageLegend />}
-        {showCoupled && <FloodLegend badgeText="COUPLED DEPTH" />}
-        {showRisk && <RiskLegend />}
-        {showFlood && !showCoupled && <FloodLegend />}
+      <div className="absolute bottom-6 left-3 z-[1000] flex flex-col gap-1.5 max-w-[calc(100%-400px)] pointer-events-auto">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setLegendsExpanded(!legendsExpanded)}
+            className="px-2 py-1 bg-slate-950/90 hover:bg-slate-900 border border-slate-800 text-slate-300 hover:text-white rounded-md text-[10px] font-bold shadow-lg flex items-center gap-1 cursor-pointer transition-colors"
+          >
+            <span>GIS Map Legends</span>
+            <span className="text-slate-400">{legendsExpanded ? '▼ Hide' : '▲ Show'}</span>
+          </button>
+        </div>
+
+        {legendsExpanded && (
+          <div className="flex flex-col sm:flex-row gap-2 overflow-x-auto pb-1 max-w-full">
+            {showDEM && <DEMLegend />}
+            {showRainfall && <RainfallLegend />}
+            {showRunoff && <RunoffLegend />}
+            {showSurfaceFlow && <SurfaceFlowLegend />}
+            {showDrainage && <DrainageLegend />}
+            {showCoupled && <FloodLegend badgeText="COUPLED DEPTH" />}
+            {showRisk && <RiskLegend />}
+            {showFlood && !showCoupled && <FloodLegend />}
+          </div>
+        )}
       </div>
 
       {/* Leaflet Map Canvas */}

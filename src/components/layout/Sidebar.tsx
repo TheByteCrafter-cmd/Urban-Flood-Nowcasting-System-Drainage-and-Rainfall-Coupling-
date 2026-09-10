@@ -5,9 +5,9 @@ import {
   Map,
   Clock,
   GitCommit,
-  AlertTriangle,
   Navigation,
-  X
+  X,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -18,10 +18,9 @@ interface SidebarProps {
 export const navItems = [
   { path: '/', label: 'Home', icon: Home },
   { path: '/dashboard', label: 'GIS Dashboard', icon: Map },
-  { path: '/nowcast', label: '0–3h Nowcast', icon: Clock },
+  { path: '/nowcast', label: '0–3h Nowcast & Alerts', icon: Clock },
   { path: '/drainage', label: 'Drainage Network', icon: GitCommit },
-  { path: '/alerts', label: 'Alerts & Risk', icon: AlertTriangle },
-  { path: '/routing', label: 'Safe Routing', icon: Navigation },
+  { path: '/routing', label: 'Flood-Safe Routing', icon: Navigation },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) => {
@@ -82,8 +81,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
 
         {/* Sidebar Footer */}
         <div className="p-4 border-t border-slate-800 bg-slate-950/40 text-xs text-slate-500">
-          <p className="font-semibold text-slate-400">SIH 2026 — SIH26085</p>
-          <p className="mt-0.5">Phase 1 Architecture Foundation</p>
+          <div className="flex items-center gap-1.5 text-blue-400 font-semibold mb-0.5">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>SIH 2026 — SIH26085</span>
+          </div>
+          <p className="text-[11px] text-slate-400">Phase 5 Architecture Freeze</p>
+          <p className="text-[10px] text-slate-500 mt-1">Verified Prototype Pipeline</p>
         </div>
       </aside>
     </>
