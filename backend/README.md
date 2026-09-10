@@ -2,55 +2,106 @@
 
 **Event:** Smart India Hackathon (SIH 2026) — Problem Statement SIH26085  
 **Team Name:** GeoNexus  
-**Tech Stack:** Python 3.10+, FastAPI, Uvicorn, Pydantic v2, NetworkX, NumPy, SciPy  
+**Tech Stack:** Python 3.10+, FastAPI, Uvicorn, Pydantic, SQLAlchemy (SQLite Phase 1), NetworkX, NumPy, SciPy, Pytest  
 
 ---
 
-## 1. Overview & Hydrodynamic Core
+## 1. Directory Tree Architecture
 
-This backend provides deterministic hydro-meteorological and hydraulic coupling API endpoints for urban flood nowcasting (0–3 hour lead time). 
-
-### Scientific Modeling Pipeline:
-1. **Rational Method Runoff Generation ($Q = C \cdot I \cdot A$):** Surface runoff generated from 0–3h rainfall intensity.
-2. **Manning’s Equation 1D Hydraulic Capacity ($Q = \frac{1}{n} A R_h^{2/3} S^{1/2}$):** Gravity conveyance capacity of underground pipes, box culverts, and open canals.
-3. **Dynamic 1D-2D Coupling & Surcharge Surcharge Depth:** Computes node surcharge overflow rates ($m^3/s$) when $Q_{in} > Q_{cap}$ and calculates street-level water depth (cm).
-4. **NetworkX Penalty Dijkstra Routing:** Computes standard routes vs flood-aware safe paths steering emergency vehicles away from low-lying flooded junctions onto elevated flyovers and freeways.
+```
+backend/
+├── app/
+│   ├── main.py                     # Main FastAPI App, CORS, Router Registration
+│   ├── api/                        # API Route Handlers (12 Endpoints)
+│   │   ├── system.py               # GET /api/health, GET /api/system/status
+│   │   ├── weather.py              # GET /api/weather/current
+│   │   ├── nowcast.py              # GET /api/nowcast
+│   │   ├── runoff.py               # GET /api/runoff
+│   │   ├── surface_flow.py         # GET /api/surface-flow
+│   │   ├── drainage.py             # GET /api/drainage
+│   │   ├── coupling.py             # GET /api/coupling
+│   │   ├── risk.py                 # GET /api/risk
+│   │   ├── alerts.py               # GET /api/alerts
+│   │   ├── routing.py              # POST /api/routing/safe-route
+│   │   └── map.py                  # GET /api/map/layers
+│   ├── services/                   # Business & Physics Calculation Services
+│   │   ├── weather_service.py      # Live/IMD telemetry & TTL caching
+│   │   ├── runoff_service.py       # Rational Method (Q = C * I * A / 3.6e6)
+│   │   ├── surface_flow_service.py # DEM 2D terrain elevation & surface storage grid
+│   │   ├── drainage_service.py     # 1D underground network & Manning's equation
+│   │   ├── coupling_service.py     # 1D-2D Dynamic Coupling Engine & Mass Balance
+│   │   ├── nowcast_service.py      # T+0 to T+3 horizon generators
+│   │   ├── risk_service.py         # Risk classification (LOW, MODERATE, HIGH, VERY_HIGH, CRITICAL)
+│   │   ├── alert_service.py        # Active flood advisory generator
+│   │   └── routing_service.py      # NetworkX Dijkstra pathfinder (SAFEST, FASTEST, EMERGENCY)
+│   ├── models/                     # SQLAlchemy ORM Entities (SQLite Phase 1)
+│   │   └── database_models.py
+│   ├── schemas/                    # Pydantic Validation Schemas
+│   │   └── schemas.py
+│   ├── core/                       # App Configuration, DB Session, TTL Cache
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   └── cache.py
+│   └── data/                       # Seed & Prototype Graph Data
+│       └── seed_data.py
+├── tests/                          # Automated Pytest Test Suite
+│   ├── test_dry_case.py            # Dry case (0 mm/hr -> 0 runoff -> 0 depth -> 0 alerts)
+│   ├── test_heavy_rain.py          # Heavy storm (65 mm/hr -> surcharge -> alerts -> route changes)
+│   └── test_endpoints.py           # Verification of all 12 API endpoints
+├── scripts/                        # Database Seeding Scripts
+│   └── seed_db.py
+├── requirements.txt
+├── .env.example
+└── README.md
+```
 
 ---
 
-## 2. Requirements & Setup
+## 2. Mass Balance & Physics Formulation
 
-### Requirements
-- Python 3.10 or higher
-- Dependencies listed in `requirements.txt`:
-  - `fastapi`
-  - `uvicorn[standard]`
-  - `pydantic`
-  - `networkx`
-  - `numpy`
-  - `scipy`
+### 1. Rational Method Runoff Generation:
+$$Q = \frac{C \cdot I \cdot A}{3.6 \times 10^6}$$
+- $Q$: Peak runoff rate ($m^3/s$)
+- $C$: Runoff coefficient ($0.85 - 0.90$ for dense urban concrete)
+- $I$: Nowcast rainfall intensity ($mm/hr$)
+- $A$: Catchment area ($m^2$)
 
-### Installation
-From the `backend/` directory, install all required Python packages:
+### 2. Manning's 1D Underground Capacity:
+$$Q = \frac{1}{n} A R_h^{2/3} S^{1/2}$$
+- $Q$: Full-flow gravity pipe capacity ($m^3/s$)
+- $n$: Manning's roughness coefficient ($0.013$ for concrete)
+- $A$: Cross-sectional flow area ($m^2$)
+- $R_h$: Hydraulic radius ($m$)
+- $S$: Bed slope ($m/m$)
 
+### 3. Strict Mass Balance Coupling:
+$$\text{Input Runoff Volume} = \text{Drainage Outfall Volume} + \text{Surface Boundary Outflow} + \text{Final Surface Storage}$$
+*Strict Rule: Surcharge is an internal hydraulic transfer between 1D pipes and 2D surface, not an external loss or double-counted volume.*
+
+### 4. Civil Safety Risk Thresholds:
+- **< 5 cm:** `LOW` (`#DBEAFE`)
+- **5 – 20 cm:** `MODERATE` (`#93C5FD`)
+- **20 – 50 cm:** `HIGH` (`#F59E0B`)
+- **50 – 100 cm:** `VERY_HIGH` (`#EA580C`)
+- **>= 100 cm:** `CRITICAL` (`#B91C1C`)
+
+---
+
+## 3. Quick Start & Execution
+
+### Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
----
-
-## 3. Running the FastAPI Server
-
-To launch the backend server with auto-reload enabled:
-
+### Seed Database
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+python scripts/seed_db.py
 ```
 
-Or run directly via Python:
-
+### Launch Server
 ```bash
-python main.py
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 - **Interactive API Documentation (Swagger UI):** `http://localhost:8000/docs`
@@ -58,39 +109,17 @@ python main.py
 
 ---
 
-## 4. API Endpoints (`/api/v1`)
+## 4. Running Tests
 
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/api/v1/cities` | Returns dynamic listing of supported city basins (Default: Mumbai MMR) |
-| `GET` | `/api/v1/nowcast/summary?city_id=mumbai` | Live system status, rainfall mm/hr, max depth, surcharged manholes count |
-| `GET` | `/api/v1/flood/depth?city_id=mumbai&time_step=t1` | Inundation GeoJSON polygons with depth (cm), risk level, and color scale |
-| `GET` | `/api/v1/drainage/network?city_id=mumbai` | 1D Hydraulic graph GeoJSON (Point nodes + LineString edges) with utilization % |
-| `GET` | `/api/v1/alerts?city_id=mumbai` | Active critical flood warnings and municipal advisories |
-| `POST` | `/api/v1/routing/safe-path` | Calculates standard route vs flood-aware safe route using penalty Dijkstra |
-
----
-
-## 5. Sample Requests
-
-### Safe Routing Request (`POST /api/v1/routing/safe-path`)
-```json
-{
-  "city_id": "mumbai",
-  "origin": { "lat": 18.9750, "lng": 72.8330 },
-  "destination": { "lat": 19.0660, "lng": 72.8680 },
-  "vehicle_type": "EMERGENCY_AMBULANCE",
-  "max_allowable_depth_cm": 20.0,
-  "horizon": "t1"
-}
-```
-
----
-
-## 6. Verification & Automated Tests
-
-Run the test suite inside `backend/`:
+Run the complete test suite:
 
 ```bash
-python test_api.py
+python tests/test_dry_case.py
+python tests/test_heavy_rain.py
+python tests/test_endpoints.py
+```
+
+Or via pytest:
+```bash
+pytest tests/
 ```

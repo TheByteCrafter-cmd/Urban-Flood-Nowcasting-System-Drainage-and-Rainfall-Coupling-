@@ -1,3 +1,3 @@
 """
-Data sets and network definitions for supported cities (Mumbai, Chennai)
+Mock & Seed Data for Mumbai Metropolitan Region
 """
