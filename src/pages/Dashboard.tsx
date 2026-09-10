@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { MapContainer } from '../components/gis/MapContainer';
 import { MapControlsPanel } from '../components/gis/MapControlsPanel';
-import { fetchLiveWeatherData, getDemoFallbackWeather } from '../services/weatherService';
+import { fetchLiveWeatherData, getDemoFallbackWeather, getInitialWeatherObservation } from '../services/weatherService';
 import { generateRunoffForecast } from '../services/runoffService';
 import { generateSurfaceFlowForecast } from '../services/surfaceFlowService';
 import { generateDrainageForecast } from '../services/drainageService';
@@ -24,9 +24,9 @@ import { NowcastHour } from '../mock/nowcast';
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
 
-  // Primary states
-  const [weather, setWeather] = useState<NormalizedWeatherObservation>(getDemoFallbackWeather());
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  // Primary states: Hydrated immediately from cached observation if available; null on first cold visit
+  const [weather, setWeather] = useState<NormalizedWeatherObservation | null>(getInitialWeatherObservation);
+  const [isLoading, setIsLoading] = useState<boolean>(!weather);
   const [scenarioMode, setScenarioMode] = useState<'LIVE' | 'DEMO_SURGE' | 'DRY'>('LIVE');
   const [selectedNowcastHour, setSelectedNowcastHour] = useState<NowcastHour>(0);
   const [viewMode, setViewMode] = useState<'depth' | 'risk'>('depth');
@@ -55,7 +55,7 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  const loadWeatherData = async (forcedStatus?: WeatherDataStatus) => {
+  const loadWeatherData = async (forcedStatus?: WeatherDataStatus, forceFresh?: boolean) => {
     setIsLoading(true);
     try {
       if (scenarioMode === 'DEMO_SURGE') {
@@ -80,7 +80,7 @@ export const Dashboard: React.FC = () => {
         }));
         setWeather(dry);
       } else {
-        const data = await fetchLiveWeatherData({ forceStatus: forcedStatus });
+        const data = await fetchLiveWeatherData({ forceStatus: forcedStatus, fresh: forceFresh });
         setWeather(data);
       }
     } catch (err: any) {
@@ -96,10 +96,14 @@ export const Dashboard: React.FC = () => {
     loadWeatherData();
   }, [scenarioMode]);
 
-  // Computational Engines Pipeline
-  const runoffForecast = useMemo(() => {
-    return generateRunoffForecast(weather) ?? generateRunoffForecast(getDemoFallbackWeather())!;
+  // Computational Engines Pipeline (uses effective weather fallback during cold initial loading)
+  const effectiveWeather = useMemo(() => {
+    return weather ?? getDemoFallbackWeather('Initializing baseline...');
   }, [weather]);
+
+  const runoffForecast = useMemo(() => {
+    return generateRunoffForecast(effectiveWeather);
+  }, [effectiveWeather]);
 
   const surfaceFlowForecast = useMemo(() => {
     return generateSurfaceFlowForecast(runoffForecast);
@@ -132,6 +136,49 @@ export const Dashboard: React.FC = () => {
   const totalNodesCount = activeDrainageState?.nodes.length ?? 31;
   const activeAlerts = activeRiskState?.alerts ?? [];
 
+  // Computed truthful provenance and display status
+  const displayStatus: WeatherDataStatus | 'INITIALIZING' = useMemo(() => {
+    if (scenarioMode === 'DEMO_SURGE' || scenarioMode === 'DRY') {
+      return 'DEMO';
+    }
+    if (!weather || (isLoading && weather.status === 'DEMO')) {
+      return 'INITIALIZING';
+    }
+    if (weather.status === 'DEMO') {
+      // User selected LIVE weather: upstream network failure is marked STALE, never DEMO
+      return weather.is_fallback ? 'STALE' : 'LIVE';
+    }
+    return weather.status;
+  }, [scenarioMode, weather, isLoading]);
+
+  // Synchronize global application header with active scenario and status
+  useEffect(() => {
+    const sourceText =
+      scenarioMode === 'LIVE'
+        ? (weather?.source === 'IMD_NOWCAST'
+            ? 'IMD & Open-Meteo'
+            : weather?.source_label || 'IMD & Open-Meteo')
+        : scenarioMode === 'DEMO_SURGE'
+        ? 'Monsoon Storm Scenario'
+        : 'Dry Weather Baseline';
+
+    const timestampText =
+      scenarioMode === 'LIVE'
+        ? (weather?.source_timestamp || (isLoading ? 'Syncing...' : 'Live Observation'))
+        : 'Scenario Model';
+
+    window.dispatchEvent(
+      new CustomEvent('weather-status-update', {
+        detail: {
+          status: displayStatus,
+          source: sourceText,
+          lastUpdated: timestampText,
+          isDemoMode: scenarioMode !== 'LIVE',
+        },
+      })
+    );
+  }, [displayStatus, scenarioMode, weather, isLoading]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-5.5rem)] min-h-[640px] space-y-2 bg-slate-950 text-slate-100 select-none">
       {/* ==================================================================== */}
@@ -141,8 +188,8 @@ export const Dashboard: React.FC = () => {
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 text-xs text-slate-400">
             <Radio className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-            <span className="font-semibold text-slate-300">IMD Live Radar Telemetry:</span>
-            <span className="font-mono text-white text-[11px]">{weather.station_name}</span>
+            <span className="font-semibold text-slate-300">Spatial Radar:</span>
+            <span className="font-mono text-white text-[11px]">IMD Radar Product / Prototype Spatial Layer</span>
           </div>
 
           <div className="h-3.5 w-px bg-slate-800 hidden sm:block" />
@@ -150,19 +197,45 @@ export const Dashboard: React.FC = () => {
           <div className="flex items-center gap-1.5 text-xs">
             <Clock className="w-3 h-3 text-slate-400" />
             <span className="text-[11px] text-slate-400">Updated:</span>
-            <span className="font-mono text-[11px] text-slate-200">{weather.source_timestamp}</span>
+            <span className="font-mono text-[11px] text-slate-200">
+              {scenarioMode === 'LIVE'
+                ? (weather?.source_timestamp || (isLoading ? 'Syncing...' : 'Live Observation'))
+                : scenarioMode === 'DEMO_SURGE'
+                ? 'Monsoon Storm Scenario (65 mm/hr)'
+                : 'Dry Weather Baseline (0 mm/hr)'}
+            </span>
             {isLoading && <RefreshCw className="w-3 h-3 text-cyan-400 animate-spin" />}
           </div>
 
           <div className="h-3.5 w-px bg-slate-800 hidden sm:block" />
 
-          {weather.status === 'LIVE' ? (
+          {displayStatus === 'INITIALIZING' ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-950/80 text-blue-300 border border-blue-700/60 animate-pulse">
+              INITIALIZING
+            </span>
+          ) : displayStatus === 'LIVE' ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950/80 text-emerald-300 border border-emerald-700/60">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               LIVE OBSERVATION
             </span>
-          ) : (
+          ) : displayStatus === 'CACHED' ? (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950/80 text-cyan-300 border border-cyan-700/60"
+              title="Observation served from high-speed cache; background telemetry sync active"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+              CACHED OBSERVATION
+            </span>
+          ) : displayStatus === 'STALE' ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950/80 text-amber-300 border border-amber-700/60">
+              STALE OBSERVATION
+            </span>
+          ) : displayStatus === 'ERROR' ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-red-950/80 text-red-300 border border-red-700/60">
+              ERROR
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-950/80 text-blue-300 border border-blue-700/60">
               DEMO SCENARIO
             </span>
           )}
@@ -210,17 +283,59 @@ export const Dashboard: React.FC = () => {
             <span className="font-semibold uppercase tracking-wider text-[10px]">Rainfall Rate</span>
             <span
               className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
-                weather.status === 'LIVE' ? 'bg-emerald-950 text-emerald-400' : 'bg-blue-950 text-blue-400'
+                displayStatus === 'INITIALIZING'
+                  ? 'bg-blue-950 text-blue-300 border border-blue-800/40 animate-pulse'
+                  : displayStatus === 'LIVE'
+                  ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/40'
+                  : displayStatus === 'CACHED'
+                  ? 'bg-cyan-950 text-cyan-400 border border-cyan-800/40'
+                  : displayStatus === 'STALE'
+                  ? 'bg-amber-950 text-amber-400 border border-amber-800/40'
+                  : displayStatus === 'ERROR'
+                  ? 'bg-red-950 text-red-400 border border-red-800/40'
+                  : 'bg-blue-950 text-blue-400 border border-blue-800/40'
               }`}
             >
-              {weather.status === 'LIVE' ? 'LIVE' : 'DEMO'}
+              {displayStatus === 'INITIALIZING' ? 'SYNCING...' : displayStatus}
             </span>
           </div>
           <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-xl font-black text-white">{weather.current_rainfall_mm_hr.toFixed(1)}</span>
-            <span className="text-xs text-slate-400 font-semibold">mm/hr</span>
+            {displayStatus === 'INITIALIZING' ? (
+              <span className="text-sm font-semibold text-slate-400 animate-pulse">Syncing feed...</span>
+            ) : (
+              <>
+                <span className="text-xl font-black text-white">
+                  {(scenarioMode === 'DEMO_SURGE'
+                    ? 65.0
+                    : scenarioMode === 'DRY'
+                    ? 0.0
+                    : weather?.current_rainfall_mm_hr ?? 0.0
+                  ).toFixed(1)}
+                </span>
+                <span className="text-xs text-slate-400 font-semibold">mm/hr</span>
+              </>
+            )}
           </div>
-          <span className="text-[10px] text-slate-500 truncate">IMD Radar Telemetry</span>
+          <span
+            className="text-[10px] text-slate-500 truncate"
+            title={
+              scenarioMode === 'LIVE'
+                ? (weather?.source === 'IMD_NOWCAST'
+                    ? 'India Meteorological Department (IMD) & Open-Meteo'
+                    : weather?.source_label || 'Open-Meteo & IMD Mausam')
+                : scenarioMode === 'DEMO_SURGE'
+                ? 'Monsoon Storm Scenario (65 mm/hr)'
+                : 'Dry Weather Baseline (0 mm/hr)'
+            }
+          >
+            {scenarioMode === 'LIVE'
+              ? (weather?.source === 'IMD_NOWCAST'
+                  ? 'IMD & Open-Meteo'
+                  : weather?.source_label || 'Open-Meteo & IMD Mausam')
+              : scenarioMode === 'DEMO_SURGE'
+              ? 'Monsoon Storm Scenario (65 mm/hr)'
+              : 'Dry Weather Baseline (0 mm/hr)'}
+          </span>
         </div>
 
         {/* Card 2: Runoff Generation */}
@@ -423,7 +538,7 @@ export const Dashboard: React.FC = () => {
             onToggleRisk={setShowRisk}
             selectedHour={selectedNowcastHour}
             scenarioMode={scenarioMode}
-            weatherStatus={weather.status}
+            weatherStatus={displayStatus}
           />
         </div>
       </div>
@@ -489,7 +604,7 @@ export const Dashboard: React.FC = () => {
           <div className="grid grid-cols-4 gap-1.5 py-1.5 flex-1 items-center">
             {([0, 1, 2, 3] as NowcastHour[]).map((h) => {
               const depth = coupledForecast.horizons[h]?.max_water_depth_cm ?? 0;
-              const rain = weather.nowcast_steps[h]?.rainfall_intensity_mm_hr ?? 0;
+              const rain = weather?.nowcast_steps?.[h]?.rainfall_intensity_mm_hr ?? 0;
               const isSelected = selectedNowcastHour === h;
 
               return (

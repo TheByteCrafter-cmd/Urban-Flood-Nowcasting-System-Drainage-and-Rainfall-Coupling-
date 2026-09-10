@@ -18,18 +18,46 @@ class SystemStatusResponse(BaseModel):
     data: SystemStatusData
 
 # 2. Weather
+class WeatherDistrictWarning(BaseModel):
+    district: str = "MUMBAI CITY"
+    warning_title: str = "No Warning"
+    warning_color: str = "#008000"
+    time_of_issue: str = "Unknown"
+    valid_upto: str = "Unknown"
+    details: str = ""
+
+class WeatherNowcastStepData(BaseModel):
+    hour_offset: int
+    label: str  # T+0, T+1, T+2, T+3
+    timestamp: str
+    rainfall_intensity_mm_hr: float
+    accumulated_rainfall_mm: float
+    warning_level: str
+
 class WeatherCurrentData(BaseModel):
     city_id: str = "mumbai"
     rainfall_mm_hr: float
     temperature_c: float = 28.5
     humidity_pct: float = 88.0
     wind_speed_kmh: float = 14.2
-    source: str = "IMD_LIVE"
+    source: str = "OPEN_METEO_TELEMETRY"
+    source_label: str = "Open-Meteo & IMD Mausam (Mumbai)"
+    source_organization: str = "India Meteorological Department / Open-Meteo"
+    status: str = "LIVE"  # LIVE, CACHED, STALE, DEMO, ERROR
+    status_reason: str = "Real-time observation verified"
     timestamp: str
+    source_timestamp: str = ""
+    fetch_timestamp: str = ""
+    is_fresh: bool = True
+    is_demo_data: bool = False
+    is_cached: Optional[bool] = False
+    district_warning: Optional[WeatherDistrictWarning] = None
+    nowcast_steps: List[WeatherNowcastStepData] = []
+    primary_radar_image: Optional[str] = "/api/imd/Radar/sri_mum.gif"
 
 class WeatherCurrentResponse(BaseModel):
     status: str = "success"
-    is_demo_data: bool = True
+    is_demo_data: bool = False
     data: WeatherCurrentData
 
 # 3. Nowcast

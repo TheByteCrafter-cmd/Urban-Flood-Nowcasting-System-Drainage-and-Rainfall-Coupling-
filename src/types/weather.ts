@@ -1,5 +1,5 @@
 export type WeatherDataSource = 'IMD_NOWCAST' | 'IMD_DWR' | 'OPEN_METEO_BACKUP' | 'DEMO_FALLBACK';
-export type WeatherDataStatus = 'LIVE' | 'STALE' | 'DEMO' | 'ERROR';
+export type WeatherDataStatus = 'LIVE' | 'STALE' | 'CACHED' | 'DEMO' | 'ERROR';
 
 export interface WeatherNowcastStep {
   hour_offset: 0 | 1 | 2 | 3;
@@ -55,6 +55,7 @@ export interface NormalizedWeatherObservation {
   radar_products: RadarProductInfo[];
   primary_radar_image?: string;
   
+  is_cached?: boolean;
   is_fallback: boolean;
   error_details?: string;
 }

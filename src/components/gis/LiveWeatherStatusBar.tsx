@@ -18,7 +18,7 @@ import { NormalizedWeatherObservation, WeatherDataStatus } from '../../types/wea
 interface LiveWeatherStatusBarProps {
   weather: NormalizedWeatherObservation | null;
   isLoading: boolean;
-  onRefresh: (forcedStatus?: WeatherDataStatus) => void;
+  onRefresh: (forcedStatus?: WeatherDataStatus, forceFresh?: boolean) => void;
   className?: string;
 }
 
@@ -32,7 +32,26 @@ export const LiveWeatherStatusBar: React.FC<LiveWeatherStatusBarProps> = ({
   const [selectedRadarCode, setSelectedRadarCode] = useState<'SRI' | 'PAC' | 'PPZ' | 'CAZ'>('SRI');
   const [showStatusMenu, setShowStatusMenu] = useState<boolean>(false);
 
-  if (!weather) return null;
+  if (!weather) {
+    return (
+      <div
+        className={`relative z-50 bg-slate-950/90 backdrop-blur-md text-slate-100 rounded-lg border border-slate-800 shadow-xl px-3 py-2 flex items-center justify-between gap-3 text-xs select-none ${className}`}
+        role="region"
+        aria-label="Real-Time Meteorological Ingestion Bar"
+      >
+        <div className="flex items-center gap-2">
+          <Radio className="w-3.5 h-3.5 text-cyan-400 animate-pulse shrink-0" />
+          <span className="text-[11px] font-semibold text-slate-300">
+            Connecting to IMD / Open-Meteo Mumbai telemetry...
+          </span>
+        </div>
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-500/20 text-blue-300 border border-blue-500/50 animate-pulse">
+          <RefreshCw className="w-2.5 h-2.5 animate-spin text-blue-400" />
+          INITIALIZING
+        </span>
+      </div>
+    );
+  }
 
   const getStatusBadge = (status: WeatherDataStatus) => {
     switch (status) {
@@ -41,6 +60,16 @@ export const LiveWeatherStatusBar: React.FC<LiveWeatherStatusBarProps> = ({
           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shadow-xs">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             LIVE
+          </span>
+        );
+      case 'CACHED':
+        return (
+          <span
+            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-xs"
+            title="Observation served from high-speed cache; background telemetry sync active"
+          >
+            <span className="w-2 h-2 rounded-full bg-cyan-400" />
+            CACHED
           </span>
         );
       case 'STALE':
@@ -176,7 +205,7 @@ export const LiveWeatherStatusBar: React.FC<LiveWeatherStatusBarProps> = ({
                   type="button"
                   onClick={() => {
                     setShowStatusMenu(false);
-                    onRefresh();
+                    onRefresh(undefined, true);
                   }}
                   className="text-left px-2 py-1 text-[11px] rounded hover:bg-slate-800 font-medium text-emerald-400 flex items-center justify-between cursor-pointer"
                 >
@@ -212,13 +241,13 @@ export const LiveWeatherStatusBar: React.FC<LiveWeatherStatusBarProps> = ({
           {/* Refresh Action */}
           <button
             type="button"
-            onClick={() => onRefresh()}
+            onClick={() => onRefresh(undefined, true)}
             disabled={isLoading}
             aria-label="Refresh live IMD weather data"
             className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors disabled:opacity-50 cursor-pointer"
-            title="Refresh Live Weather Ingestion"
+            title={isLoading ? 'Syncing live telemetry in background...' : 'Force Refresh Live Weather Ingestion'}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-blue-400' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-cyan-400' : ''}`} />
           </button>
         </div>
       </div>

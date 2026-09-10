@@ -32,7 +32,7 @@ import { LiveWeatherStatusBar } from '../components/gis/LiveWeatherStatusBar';
 import { FloodLegend } from '../components/gis/FloodLegend';
 import { RiskLegend } from '../components/gis/RiskLegend';
 import { NowcastTimeControl } from '../components/gis/NowcastTimeControl';
-import { fetchLiveWeatherData, getDemoFallbackWeather } from '../services/weatherService';
+import { fetchLiveWeatherData, getDemoFallbackWeather, getInitialWeatherObservation } from '../services/weatherService';
 import { generateRunoffForecast } from '../services/runoffService';
 import {
   getPipeUtilizationCategory,
@@ -80,8 +80,8 @@ function getNowcastDepthStyle(depthCm: number): {
 }
 
 export const NowcastDashboard: React.FC = () => {
-  const [weather, setWeather] = useState<NormalizedWeatherObservation>(getDemoFallbackWeather());
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [weather, setWeather] = useState<NormalizedWeatherObservation | null>(getInitialWeatherObservation);
+  const [isLoading, setIsLoading] = useState<boolean>(!weather);
   const [selectedHour, setSelectedHour] = useState<NowcastHour>(0);
   const [isDemoScenario, setIsDemoScenario] = useState<boolean>(false);
   const [showDrainageOverlay, setShowDrainageOverlay] = useState<boolean>(true);
@@ -89,7 +89,7 @@ export const NowcastDashboard: React.FC = () => {
   const [alertScope, setAlertScope] = useState<'horizon' | 'all'>('horizon');
 
   // Load weather: either live IMD observation or explicitly forced demo
-  const loadWeatherData = async (forceDemo = false) => {
+  const loadWeatherData = async (forceDemo = false, forceFresh = false) => {
     setIsLoading(true);
     try {
       if (forceDemo) {
@@ -97,7 +97,7 @@ export const NowcastDashboard: React.FC = () => {
         demoWeather.status = 'DEMO';
         setWeather(demoWeather);
       } else {
-        const data = await fetchLiveWeatherData();
+        const data = await fetchLiveWeatherData({ fresh: forceFresh });
         setWeather(data);
       }
     } catch (err: any) {
@@ -120,9 +120,13 @@ export const NowcastDashboard: React.FC = () => {
   };
 
   // 1. Phase 3A: Hydrological Runoff Engine
-  const runoffForecast = useMemo(() => {
-    return generateRunoffForecast(weather);
+  const effectiveWeather = useMemo(() => {
+    return weather ?? getDemoFallbackWeather('Initializing baseline...');
   }, [weather]);
+
+  const runoffForecast = useMemo(() => {
+    return generateRunoffForecast(effectiveWeather);
+  }, [effectiveWeather]);
 
   // 2. Phase 3D: Dynamic 1D-2D Coupling Engine (internalizes Phase 3B & Phase 3C)
   const coupledForecast = useMemo(() => {
@@ -152,11 +156,11 @@ export const NowcastDashboard: React.FC = () => {
   // Selected horizon rainfall intensity (mm/hr)
   const currentRainfallMmHr =
     currentRunoffGrid?.cells[0]?.rainfall_intensity_mm_hr ??
-    weather.nowcast_steps?.[selectedHour]?.rainfall_intensity_mm_hr ??
-    (selectedHour === 0 ? weather.current_rainfall_mm_hr : 0);
+    weather?.nowcast_steps?.[selectedHour]?.rainfall_intensity_mm_hr ??
+    (selectedHour === 0 ? weather?.current_rainfall_mm_hr ?? 0 : 0);
 
   // Status & Provenance
-  const isLive = weather.status === 'LIVE';
+  const isLive = weather?.status === 'LIVE';
 
   // GeoJSON features for coupled 2D surface grid
   const coupledGeoJSON = useMemo(() => {
@@ -331,7 +335,7 @@ export const NowcastDashboard: React.FC = () => {
         <LiveWeatherStatusBar
           weather={weather}
           isLoading={isLoading}
-          onRefresh={() => loadWeatherData(isDemoScenario)}
+          onRefresh={(_forcedStatus, fresh) => loadWeatherData(isDemoScenario, fresh)}
         />
       </div>
 
@@ -705,12 +709,28 @@ export const NowcastDashboard: React.FC = () => {
                 </span>
                 <span
                   className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
-                    isLive && !isDemoScenario
+                    isDemoScenario
+                      ? 'bg-blue-950/80 text-blue-300 border-blue-800'
+                      : weather?.status === 'LIVE'
                       ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
-                      : 'bg-amber-950/80 text-amber-300 border-amber-800'
+                      : weather?.status === 'CACHED'
+                      ? 'bg-cyan-950/80 text-cyan-300 border-cyan-800'
+                      : weather?.status === 'STALE'
+                      ? 'bg-amber-950/80 text-amber-300 border-amber-800'
+                      : weather?.status === 'ERROR'
+                      ? 'bg-red-950/80 text-red-300 border-red-800'
+                      : 'bg-blue-950/80 text-blue-300 border-blue-800'
                   }`}
                 >
-                  {isLive && !isDemoScenario ? 'LIVE' : 'DEMO'}
+                  {isDemoScenario
+                    ? 'DEMO'
+                    : weather?.status === 'CACHED'
+                    ? 'CACHED'
+                    : weather?.status === 'STALE'
+                    ? 'STALE'
+                    : weather?.status === 'ERROR'
+                    ? 'ERROR'
+                    : 'LIVE'}
                 </span>
               </div>
             </div>
@@ -733,8 +753,14 @@ export const NowcastDashboard: React.FC = () => {
                   {currentRainfallMmHr.toFixed(1)}{' '}
                   <span className="text-xs font-normal text-slate-400">mm/hr</span>
                 </div>
-                <div className="text-[9px] text-slate-400 mt-0.5">
-                  Source: {isDemoScenario ? 'DEMO / FALLBACK' : weather.source_organization ? 'IMD / DWR' : weather.source_label}
+                <div className="text-[9px] text-slate-400 mt-0.5 truncate" title={
+                  isDemoScenario
+                    ? 'DEMO / SCENARIO MODEL (65 mm/hr)'
+                    : weather?.source === 'IMD_NOWCAST'
+                    ? 'India Meteorological Department (IMD) & Open-Meteo'
+                    : weather?.source_label || 'IMD & Open-Meteo'
+                }>
+                  Source: {isDemoScenario ? 'DEMO / SCENARIO MODEL' : weather?.source === 'IMD_NOWCAST' ? 'IMD & Open-Meteo' : weather?.source_label || 'IMD & Open-Meteo'}
                 </div>
               </div>
 
@@ -989,7 +1015,7 @@ export const NowcastDashboard: React.FC = () => {
                     {([0, 1, 2, 3] as const).map((h) => {
                       const hRain =
                         runoffForecast.horizons[h]?.cells[0]?.rainfall_intensity_mm_hr ??
-                        weather.nowcast_steps?.[h]?.rainfall_intensity_mm_hr ??
+                        weather?.nowcast_steps?.[h]?.rainfall_intensity_mm_hr ??
                         0;
                       const isActive = selectedHour === h;
                       return (

@@ -6,7 +6,7 @@ import { LiveWeatherStatusBar } from '../components/gis/LiveWeatherStatusBar';
 import { DrainageLegend } from '../components/gis/DrainageLegend';
 import { DrainageSummaryCard } from '../components/gis/DrainageSummaryCard';
 import { NowcastTimeControl } from '../components/gis/NowcastTimeControl';
-import { fetchLiveWeatherData, getDemoFallbackWeather } from '../services/weatherService';
+import { fetchLiveWeatherData, getDemoFallbackWeather, getInitialWeatherObservation } from '../services/weatherService';
 import { generateRunoffForecast } from '../services/runoffService';
 import { generateDrainageForecast, getPipeUtilizationCategory, getNodeSurchargeStatus } from '../services/drainageService';
 import { NormalizedWeatherObservation, WeatherDataStatus } from '../types/weather';
@@ -29,14 +29,14 @@ const DrainageMapPanes: React.FC = () => {
 };
 
 export const DrainageDashboard: React.FC = () => {
-  const [weather, setWeather] = useState<NormalizedWeatherObservation>(getDemoFallbackWeather());
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [weather, setWeather] = useState<NormalizedWeatherObservation | null>(getInitialWeatherObservation);
+  const [isLoading, setIsLoading] = useState<boolean>(!weather);
   const [selectedHour, setSelectedHour] = useState<NowcastHour>(0);
 
-  const loadWeatherData = async (forcedStatus?: WeatherDataStatus) => {
+  const loadWeatherData = async (forcedStatus?: WeatherDataStatus, forceFresh?: boolean) => {
     setIsLoading(true);
     try {
-      const data = await fetchLiveWeatherData({ forceStatus: forcedStatus });
+      const data = await fetchLiveWeatherData({ forceStatus: forcedStatus, fresh: forceFresh });
       setWeather(data);
     } catch (err: any) {
       const fallback = getDemoFallbackWeather(err?.message || 'Ingestion failure');
@@ -51,10 +51,14 @@ export const DrainageDashboard: React.FC = () => {
     loadWeatherData();
   }, []);
 
-  // Compute Phase 3A runoff forecast from weather
-  const runoffForecast = useMemo(() => {
-    return generateRunoffForecast(weather);
+  // Compute Phase 3A runoff forecast from weather (uses effective baseline during cold initial load)
+  const effectiveWeather = useMemo(() => {
+    return weather ?? getDemoFallbackWeather('Initializing baseline...');
   }, [weather]);
+
+  const runoffForecast = useMemo(() => {
+    return generateRunoffForecast(effectiveWeather);
+  }, [effectiveWeather]);
 
   // Compute Phase 3C drainage network forecast from runoff
   const drainageForecast = useMemo(() => {
@@ -72,7 +76,7 @@ export const DrainageDashboard: React.FC = () => {
         <LiveWeatherStatusBar
           weather={weather}
           isLoading={isLoading}
-          onRefresh={loadWeatherData}
+          onRefresh={(forcedStatus, forceFresh) => loadWeatherData(forcedStatus, forceFresh)}
         />
       </div>
 

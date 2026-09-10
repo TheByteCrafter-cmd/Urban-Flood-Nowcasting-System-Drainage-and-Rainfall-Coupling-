@@ -2,28 +2,70 @@ import React, { useState, useEffect } from 'react';
 import { Menu, MapPin, Activity, X, Radio, Clock } from 'lucide-react';
 import { SystemStatusPanel } from '../ui/SystemStatusPanel';
 
+import { WeatherDataStatus } from '../../types/weather';
+import { getInitialWeatherObservation } from '../../services/weatherService';
+
 interface HeaderProps {
   onToggleMobileSidebar: () => void;
   dataSource?: string;
-  weatherStatus?: 'LIVE' | 'DEMO' | 'STALE' | 'ERROR';
+  weatherStatus?: WeatherDataStatus | 'INITIALIZING';
   lastUpdated?: string;
   isDemoMode?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   onToggleMobileSidebar,
-  dataSource = 'IMD (Govt. of India)',
-  weatherStatus = 'LIVE',
+  dataSource = 'IMD & Open-Meteo',
+  weatherStatus,
   lastUpdated = '07:00 IST',
   isDemoMode = false,
 }) => {
   const [showStatusModal, setShowStatusModal] = useState<boolean>(false);
+  const [currentStatus, setCurrentStatus] = useState<WeatherDataStatus | 'INITIALIZING'>(() => {
+    if (weatherStatus) return weatherStatus;
+    const initial = getInitialWeatherObservation();
+    return initial ? initial.status : 'LIVE';
+  });
+  const [currentSource, setCurrentSource] = useState<string>(dataSource);
+  const [currentUpdated, setCurrentUpdated] = useState<string>(lastUpdated);
+  const [currentDemoMode, setCurrentDemoMode] = useState<boolean>(isDemoMode);
+
+  // Synchronize when props change
+  useEffect(() => {
+    if (weatherStatus) setCurrentStatus(weatherStatus);
+  }, [weatherStatus]);
+
+  useEffect(() => {
+    setCurrentSource(dataSource);
+  }, [dataSource]);
+
+  useEffect(() => {
+    setCurrentUpdated(lastUpdated);
+  }, [lastUpdated]);
+
+  useEffect(() => {
+    setCurrentDemoMode(isDemoMode);
+  }, [isDemoMode]);
 
   // Listen for custom event from sidebar to open status modal
   useEffect(() => {
     const handleOpenStatus = () => setShowStatusModal(true);
     window.addEventListener('open-system-status', handleOpenStatus);
     return () => window.removeEventListener('open-system-status', handleOpenStatus);
+  }, []);
+
+  // Listen for custom event from pages to keep top header truthful
+  useEffect(() => {
+    const handleWeatherUpdate = (e: any) => {
+      if (e?.detail) {
+        if (e.detail.status) setCurrentStatus(e.detail.status);
+        if (e.detail.source) setCurrentSource(e.detail.source);
+        if (e.detail.lastUpdated) setCurrentUpdated(e.detail.lastUpdated);
+        if (typeof e.detail.isDemoMode === 'boolean') setCurrentDemoMode(e.detail.isDemoMode);
+      }
+    };
+    window.addEventListener('weather-status-update', handleWeatherUpdate as EventListener);
+    return () => window.removeEventListener('weather-status-update', handleWeatherUpdate as EventListener);
   }, []);
 
   return (
@@ -60,16 +102,36 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="hidden lg:flex items-center gap-1.5 text-xs text-slate-300">
             <Radio className="w-3.5 h-3.5 text-blue-400 shrink-0" />
             <span className="text-slate-400 text-[11px]">Source:</span>
-            <span className="font-bold text-white text-[11px]">{dataSource}</span>
+            <span className="font-bold text-white text-[11px]">{currentSource}</span>
           </div>
 
           <div className="h-4 w-px bg-slate-800 hidden lg:block" />
 
           {/* Status Badge */}
-          {weatherStatus === 'LIVE' ? (
+          {currentStatus === 'LIVE' ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 shadow-xs">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               LIVE
+            </span>
+          ) : currentStatus === 'CACHED' ? (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-cyan-950/80 text-cyan-300 border border-cyan-700/60 shadow-xs"
+              title="Observation served from high-speed cache"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+              CACHED
+            </span>
+          ) : currentStatus === 'STALE' ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-950/80 text-amber-300 border border-amber-700/60 shadow-xs">
+              STALE
+            </span>
+          ) : currentStatus === 'ERROR' ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-red-950/80 text-red-300 border border-red-700/60 shadow-xs">
+              ERROR
+            </span>
+          ) : currentStatus === 'INITIALIZING' ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-blue-950/80 text-blue-300 border border-blue-700/60 animate-pulse shadow-xs">
+              SYNCING
             </span>
           ) : (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-blue-950/80 text-blue-300 border border-blue-700/60 shadow-xs">
@@ -80,11 +142,11 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Timestamp */}
           <div className="hidden sm:flex items-center gap-1 text-[11px] text-slate-400 font-mono">
             <Clock className="w-3 h-3 text-slate-500" />
-            <span>{lastUpdated}</span>
+            <span>{currentUpdated}</span>
           </div>
 
           {/* Demo Mode Indicator */}
-          {isDemoMode && (
+          {currentDemoMode && (
             <span className="hidden sm:inline-block text-[10px] font-bold text-amber-300 bg-amber-950/80 border border-amber-800/60 px-2 py-0.5 rounded">
               DEMO SCENARIO
             </span>

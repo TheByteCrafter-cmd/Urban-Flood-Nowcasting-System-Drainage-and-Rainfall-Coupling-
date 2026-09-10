@@ -8,6 +8,7 @@ class Settings:
     
     # Environment Variables & Defaults
     IMD_API_URL: str = os.getenv("IMD_API_URL", "https://api.imd.gov.in/v1/rainfall")
+    IMD_NOWCAST_URL: str = os.getenv("IMD_NOWCAST_URL", "https://mausam.imd.gov.in/responsive/districtWiseNowcast.php")
     WEATHER_API_URL: str = os.getenv("WEATHER_API_URL", "https://api.open-meteo.com/v1/forecast")
     WEATHER_API_KEY: str = os.getenv("WEATHER_API_KEY", "sample_demo_key_sih2026")
     

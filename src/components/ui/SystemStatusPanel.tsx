@@ -29,7 +29,10 @@ export const SystemStatusPanel: React.FC<SystemStatusPanelProps> = ({
       name: 'Weather Telemetry Ingestion',
       category: 'External Observation Feed',
       status: weatherStatus,
-      statusType: weatherStatus === 'LIVE' ? 'live' : weatherStatus === 'DEMO' ? 'demo' : 'warning',
+      statusType:
+        weatherStatus === 'LIVE' ? 'live' :
+        weatherStatus === 'CACHED' ? 'cached' :
+        weatherStatus === 'DEMO' ? 'demo' : 'warning',
       details: 'IMD Doppler Weather Radar (DWR Colaba) & Open-Meteo supporting telemetry',
       icon: Radio,
     },
@@ -105,6 +108,13 @@ export const SystemStatusPanel: React.FC<SystemStatusPanelProps> = ({
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             LIVE
+          </span>
+        );
+      case 'cached':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+            CACHED
           </span>
         );
       case 'demo':
