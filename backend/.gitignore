@@ -1,0 +1,23 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# Local Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment variables & secrets
+.env
+
+# Testing & tool caches
+.pytest_cache/
+.DS_Store
